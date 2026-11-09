@@ -1,15 +1,14 @@
 # Changelog
 
-## 0.1.16 (2026-11-09)
-- Complete the reviewed Course Builder planning and build flow, including consistent lesson normalisation and completion tracking for generated courses.
-- Keep generated activity creation aligned with the selected plugin's native workflow and the current unit outcomes.
-
-## 0.1.15 (2026-11-07)
-- Normalize framework identifiers for LMS Labs services and scope Course Information and Mapping to each course unit's pasted outcomes.
-- Replace retired Slides with AI Slide Flow, tidy non-VET lesson titles and sections, and preserve the existing VET completion defaults.
-
-## 0.1.14 (2026-11-07)
-- Enable Moodle activity completion for non-VET AI Course Builder courses so Course Report can show learner progress; keep VET defaults unchanged.
+## 1.0.0 (2026-11-09)
+First stable release, tested end to end on Moodle 4.5, 5.2 and 5.3 with the live LMS Labs service.
+- Course Information is written against the curriculum outcomes the teacher pasted, quoted word for word, with the teaching context.
+- Learning Outcome Mapping links each pasted outcome to the activities that teach it, marked introduced, practised or assessed, using the approved plan.
+- Slide Flow replaces the retired Slides activity for short intro text.
+- Curriculum frameworks map to the service's frameworks (training package to VET, Australian Curriculum to au_curriculum, anything else to custom); ASQA options appear only for VET.
+- Duplicate lesson titles in a plan are merged and renumbered before building.
+- Fix: the LMS Labs API client loads Moodle's HTTP library before use ("Class curl not found").
+- Fix: a build that succeeds on retry clears the earlier error banner.
 
 ## 0.1.13 (2026-11-07)
 - Load Moodle's HTTP library in scheduled tasks so native adapters can poll their asynchronous jobs.
