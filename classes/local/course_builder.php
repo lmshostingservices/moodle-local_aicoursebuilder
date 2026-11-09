@@ -41,7 +41,7 @@ final class course_builder {
         if (empty($plan['outcomes']) || empty($plan['units']) || empty($plan['lessons'])) {
             throw new \moodle_exception('invalidplan', 'local_aicoursebuilder');
         }
-        $plan = self::normalise_plan($plan);
+        $plan = self::normalise_plan($plan, isset($delivery['allowedTools']) ? (array)$delivery['allowedTools'] : null);
         self::assert_tagged_tools($plan);
         $missing = [];
         foreach ($plan['lessons'] as $lesson) {
@@ -79,6 +79,9 @@ final class course_builder {
             'language' => clean_param($program['language'] ?? 'English', PARAM_TEXT),
             'spelling' => clean_param($program['spelling'] ?? '', PARAM_TEXT),
             'learnerprofile' => clean_param($program['learnerProfile'] ?? '', PARAM_TEXT),
+            'unitcode' => \core_text::substr(clean_param($program['unitCode'] ?? '', PARAM_ALPHANUMEXT), 0, 50),
+            'unittitle' => \core_text::substr(clean_param($program['unitTitle'] ?? '', PARAM_TEXT), 0, 255),
+            'nominalhours' => max(0, (int)($program['nominalHours'] ?? 0)),
             'timecreated' => $now,
         ];
         $DB->insert_record('local_aicoursebuilder_framework', $framework);
@@ -151,6 +154,45 @@ final class course_builder {
         }
         $transaction->allow_commit();
         return $programid;
+    }
+
+    /**
+     * Queue one failed or blocked activity to be generated again.
+     *
+     * The activity keeps its place in the course. Course Information and Mapping are
+     * course-level: when a lesson activity is retried after they were made, they are
+     * queued again too, so they include it once it is built.
+     *
+     * @param int $jobid
+     * @return void
+     */
+    public static function retry_job(int $jobid): void {
+        global $DB;
+        $job = $DB->get_record('local_aicoursebuilder_job', ['id' => $jobid], '*', MUST_EXIST);
+        $ids = [$job->id];
+        if (!in_array($job->component, ['mod_courseinfo', 'mod_learningmapping'], true)) {
+            $lesson = $DB->get_record('local_aicoursebuilder_lesson', ['id' => $job->lessonid], 'id, unitid', MUST_EXIST);
+            $first = $DB->get_records('local_aicoursebuilder_lesson', ['unitid' => $lesson->unitid], 'lessonnumber ASC', 'id', 0, 1);
+            $courselevel = $DB->get_records_select('local_aicoursebuilder_job',
+                'programid = ? AND lessonid = ? AND component IN (?, ?)',
+                [$job->programid, (int)array_key_first($first), 'mod_courseinfo', 'mod_learningmapping']);
+            foreach ($courselevel as $cl) {
+                $ids[] = $cl->id;
+            }
+        }
+        $now = time();
+        foreach ($ids as $id) {
+            $DB->update_record('local_aicoursebuilder_job', (object)[
+                'id' => $id, 'status' => 'queued', 'externaljobid' => null, 'error' => null,
+                'resultjson' => null, 'timemodified' => $now,
+            ]);
+            $task = new \local_aicoursebuilder\task\generate_activity();
+            $task->set_custom_data(['jobid' => (int)$id]);
+            \core\task\manager::queue_adhoc_task($task);
+        }
+        $DB->update_record('local_aicoursebuilder_program', (object)[
+            'id' => $job->programid, 'status' => 'building', 'error' => null, 'timemodified' => $now,
+        ]);
     }
 
     /**
@@ -295,8 +337,18 @@ final class course_builder {
         foreach ($DB->get_records('local_aicoursebuilder_job', ['programid' => $programid]) as $job) {
             $jobbylessoncomponent[$job->lessonid][$job->component] = $job;
         }
+        // Courses run one after another from the day the plan is approved. Each starts after
+        // the weeks the previous courses take, from the teacher's sessions per week.
+        $delivery = json_decode((string)$program->deliveryjson, true) ?: [];
+        $perweek = max(1, (int)($delivery['sessionsPerWeek'] ?? 1));
+        $selfpaced = !empty($delivery['selfPaced']);
+        $coursestart = usergetmidnight(time());
         foreach ($units as $unit) {
+            $unitlessoncount = $DB->count_records('local_aicoursebuilder_lesson', ['unitid' => $unit->id]);
+            $unitweeks = max(1, (int)ceil($unitlessoncount / $perweek));
             $course = create_course((object)[
+                'startdate' => $coursestart,
+                'enddate' => $selfpaced ? 0 : $coursestart + $unitweeks * WEEKSECS,
                 'fullname' => sprintf('%02d · %s', $unit->unitnumber, $unit->title),
                 'shortname' => sprintf('AICB-%d-%02d', $programid, $unit->unitnumber),
                 'category' => $category->id,
@@ -328,6 +380,28 @@ final class course_builder {
                 $lesson->sectionid = $section->id;
                 $DB->update_record('local_aicoursebuilder_lesson', $lesson);
                 $tools = json_decode($lesson->toolsjson, true) ?: [];
+                // Anatomy needs one body model (heart, lungs, hand...). A lesson about body
+                // systems in general matches none, so it is taught with Visual Learning instead,
+                // the same fallback the planner uses, rather than failing the whole approval.
+                if (in_array('mod_aianatomy', $tools, true) && !self::anatomy_pack_matches($lesson)) {
+                    $anatomyjob = $jobbylessoncomponent[$lesson->id]['mod_aianatomy'] ?? null;
+                    if (in_array('mod_visuallearning', $tools, true)) {
+                        $tools = array_values(array_diff($tools, ['mod_aianatomy']));
+                        if ($anatomyjob) {
+                            $DB->delete_records('local_aicoursebuilder_job', ['id' => $anatomyjob->id]);
+                        }
+                    } else {
+                        $tools = array_values(array_map(fn($t) => $t === 'mod_aianatomy' ? 'mod_visuallearning' : $t, $tools));
+                        if ($anatomyjob) {
+                            $anatomyjob->component = 'mod_visuallearning';
+                            $DB->update_record('local_aicoursebuilder_job', $anatomyjob);
+                            $jobbylessoncomponent[$lesson->id]['mod_visuallearning'] = $anatomyjob;
+                        }
+                    }
+                    unset($jobbylessoncomponent[$lesson->id]['mod_aianatomy']);
+                    $lesson->toolsjson = json_encode($tools, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+                    $DB->update_record('local_aicoursebuilder_lesson', $lesson);
+                }
                 foreach ($tools as $component) {
                     if (in_array($component, ['mod_courseinfo', 'mod_learningmapping'], true)) {
                         continue;
@@ -377,6 +451,9 @@ final class course_builder {
             $mappingjob->timemodified = time();
             $DB->update_record('local_aicoursebuilder_job', $mappingjob);
             self::finish_sections((int)$course->id, $lessons, $mappingsection);
+            if (!$selfpaced) {
+                $coursestart += $unitweeks * WEEKSECS;
+            }
         }
         $program->categoryid = $category->id;
         $program->status = 'building';
@@ -401,7 +478,11 @@ final class course_builder {
      * @param array $plan
      * @return array
      */
-    public static function normalise_plan(array $plan): array {
+    public static function normalise_plan(array $plan, ?array $allowed = null): array {
+        $usable = static function (string $component) use ($allowed): bool {
+            return ($allowed === null || in_array($component, $allowed, true))
+                && generator_runtime::component_available($component);
+        };
         $strip = static function (string $title): string {
             $title = preg_replace('/^\s*(unit|course|lesson|module)\s*\d+\s*[·:\-–.]\s*/iu', '', $title);
             $title = trim((string)$title);
@@ -448,14 +529,19 @@ final class course_builder {
             $tools = array_values(array_unique($tools));
             $hasteaching = (bool)array_intersect($teaching, $tools);
             $add = [];
-            if (!$hasteaching && generator_runtime::component_available('mod_visuallearning')) {
+            if (!$hasteaching && $usable('mod_visuallearning')) {
                 $add[] = 'mod_visuallearning';
             }
-            if (!in_array('mod_aiactivities', $tools, true) && generator_runtime::component_available('mod_aiactivities')) {
+            if (!in_array('mod_aiactivities', $tools, true) && $usable('mod_aiactivities')) {
                 $add[] = 'mod_aiactivities';
             }
-            if (!in_array('mod_aiknowledgecheck', $tools, true) && generator_runtime::component_available('mod_aiknowledgecheck')) {
+            if (!in_array('mod_aiknowledgecheck', $tools, true) && $usable('mod_aiknowledgecheck')) {
                 $add[] = 'mod_aiknowledgecheck';
+            }
+            if ($allowed !== null) {
+                // The planner may also suggest a tool the teacher switched off.
+                $tools = array_values(array_filter($tools, static fn($t) => in_array($t, $allowed, true)
+                    || in_array($t, ['mod_courseinfo', 'mod_learningmapping'], true)));
             }
             // Keep the order a learner meets them: teach, practise, check, then any tagged extras.
             $order = array_merge($teaching, ['mod_aiactivities', 'mod_aiknowledgecheck']);
@@ -485,6 +571,19 @@ final class course_builder {
         if ($section && trim((string)$section->name) === '') {
             $section->name = get_string('mappingsectionname', 'local_aicoursebuilder');
             $DB->update_record('course_sections', $section);
+        }
+        // Mapping is a trainer and auditor document, not a lesson: keep its section hidden
+        // from learners. Teachers still see it and can show it if they choose.
+        if ($section && (int)$section->visible === 1) {
+            if (method_exists('\\core_courseformat\\local\\sectionactions', 'set_visibility')) {
+                // Moodle 5.2 and later.
+                $sectioninfo = get_fast_modinfo($courseid)->get_section_info($mappingsection);
+                \core_courseformat\formatactions::section($courseid)->set_visibility($sectioninfo, false);
+            } else {
+                global $CFG;
+                require_once($CFG->dirroot . '/course/lib.php');
+                set_section_visible($courseid, $mappingsection, 0);
+            }
         }
         if (!class_exists('\format_aicourse\local\icons')) {
             return;
@@ -559,6 +658,37 @@ final class course_builder {
             'idnumber' => '',
             'cmidnumber' => '',
         ];
+        // Each lesson activity completes on its own learning rule, not on a view, so the
+        // Course Report and parent reports show work actually done, not pages opened.
+        $learningrules = [
+            'aiknowledgecheck' => 'completionallcorrect',
+            'aiactivities' => 'completionallcorrect',
+            'aibranchedscenario' => 'completionfinish',
+            'aianatomy' => 'completionfinish',
+            'visuallearning' => 'completionlistened',
+            'contentcreator' => 'completionviewallslides',
+            'aisoftskills' => 'completionallscenes',
+            'aisafetyhazards' => 'completionallscenes',
+        ];
+        if ($lesson && isset($learningrules[$modulename])
+                && $DB->get_manager()->field_exists($modulename, $learningrules[$modulename])) {
+            $info->completion = COMPLETION_TRACKING_AUTOMATIC;
+            $info->completionview = 0;
+            $info->{$learningrules[$modulename]} = 1;
+        }
+        // Give each lesson activity the end of its teaching week as its expected completion
+        // date, from the teacher's schedule, so Course Report and parent reports can tell
+        // "on track" from "behind". Self-paced programs have no weekly schedule.
+        if ($lesson && !empty($info->completion)) {
+            $delivery = json_decode((string)$DB->get_field('local_aicoursebuilder_program', 'deliveryjson', ['id' => $programid]), true) ?: [];
+            if (empty($delivery['selfPaced']) && !empty($course->startdate)) {
+                $perweek = max(1, (int)($delivery['sessionsPerWeek'] ?? 1));
+                $first = (int)$DB->get_field_sql('SELECT MIN(lessonnumber) FROM {local_aicoursebuilder_lesson} WHERE unitid = ?',
+                    [(int)$lesson->unitid]);
+                $week = intdiv(max(0, (int)$lesson->lessonnumber - max(1, $first)), $perweek);
+                $info->completionexpected = (int)$course->startdate + ($week + 1) * WEEKSECS - 1;
+            }
+        }
         if ($lesson) {
             if ($modulename === 'visuallearning') {
                 $info->sourcecontent = $description;
@@ -590,12 +720,24 @@ final class course_builder {
                 'spelling' => (string)$framework->spelling,
                 // The outcomes the teacher pasted, limited to this course's unit.
                 'outcomes' => self::unit_outcomes((int)$course->id),
+                // How the course is actually taught, so Course Information does not describe a
+                // scheduled class as "self-paced" (or the other way round).
+                'delivery' => self::delivery_summary($programid),
             ];
             $info->framework = self::service_framework((string)$framework->framework);
             $info->frameworkdata = json_encode($frameworkdata, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
             if ($modulename === 'courseinfo') {
                 $info->enableasqa = $info->framework === 'vet' ? 1 : 0;
-                $info->enablevol = 0;
+                // Volume of learning needs the unit's nominal hours, which only VET programs give.
+                $nominalhours = (int)($framework->nominalhours ?? 0);
+                $info->enablevol = ($info->framework === 'vet' && $nominalhours > 0) ? 1 : 0;
+            }
+            if ($info->framework === 'vet') {
+                $info->unitcode = (string)($framework->unitcode ?? '');
+                if ($modulename === 'courseinfo') {
+                    $info->unittitle = (string)($framework->unittitle ?? '');
+                    $info->nominalhours = (int)($framework->nominalhours ?? 0);
+                }
             }
         }
         $added = add_moduleinfo($info, $course);
@@ -662,6 +804,34 @@ final class course_builder {
      * @param string $description
      * @return string
      */
+    /**
+     * The teacher's schedule in words, for Course Information.
+     *
+     * @param int $programid
+     * @return string
+     */
+    private static function delivery_summary(int $programid): string {
+        global $DB;
+        $d = json_decode((string)$DB->get_field('local_aicoursebuilder_program', 'deliveryjson', ['id' => $programid]), true) ?: [];
+        if (!empty($d['selfPaced'])) {
+            $hours = (float)($d['totalLearnerHours'] ?? 0);
+            return 'Self-paced' . ($hours > 0 ? ', about ' . $hours . ' learner hours in total' : '') . '.';
+        }
+        return sprintf('Scheduled: %d week(s), %d session(s) a week, %d minutes each.',
+            (int)($d['weeks'] ?? 0), (int)($d['sessionsPerWeek'] ?? 0), (int)($d['minutesPerSession'] ?? 0));
+    }
+
+    private static function anatomy_pack_matches(\stdClass $lesson): bool {
+        $outcomes = json_decode((string)$lesson->outcomesjson, true) ?: [];
+        $text = implode("\n", array_map(static fn($o) => is_array($o) ? (string)($o['text'] ?? '') : (string)$o, $outcomes));
+        try {
+            self::anatomy_pack_for($text);
+            return true;
+        } catch (\moodle_exception $e) {
+            return false;
+        }
+    }
+
     private static function anatomy_pack_for(string $description): string {
         $text = \core_text::strtolower($description);
         $rules = [

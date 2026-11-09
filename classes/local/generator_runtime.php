@@ -48,6 +48,32 @@ final class generator_runtime {
     }
 
     /**
+     * Why a component cannot be used right now, or null when it is ready.
+     *
+     * Adapters may define native_ready(): ?string to report site settings that stop
+     * generation (for example AI drafting switched off), so the wizard does not offer
+     * a tool that would only fail during the build.
+     *
+     * @param string $component
+     * @return string|null
+     */
+    public static function component_ready(string $component): ?string {
+        if (!self::component_available($component)) {
+            return null;
+        }
+        $class = '\\' . $component . '\\aicoursebuilder\\generator';
+        if (!method_exists($class, 'native_ready')) {
+            return null;
+        }
+        try {
+            $reason = $class::native_ready();
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return is_string($reason) && trim($reason) !== '' ? trim($reason) : null;
+    }
+
+    /**
      * Return a server-authoritative estimate via the plugin-owned adapter.
      *
      * @param string $component

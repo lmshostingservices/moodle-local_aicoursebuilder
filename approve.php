@@ -25,6 +25,8 @@
 require_once(__DIR__ . '/../../config.php');
 
 require_login();
+$PAGE->set_url(new moodle_url('/local/aicoursebuilder/approve.php'));
+$PAGE->set_context(context_system::instance());
 require_sesskey();
 $id = required_param('id', PARAM_INT);
 $rawplan = required_param('planjson', PARAM_RAW); // pipeline-ignore: PARAM_RAW — JSON is decoded immediately and structurally validated before use.

@@ -25,6 +25,9 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
  */
 class generate_activity extends \core\task\adhoc_task {
+    /** @var int Longest one generation attempt may run before it is treated as failed. */
+    private const MAX_JOB_SECONDS = 3600;
+
     /**
      * Generate one planned activity.
      */
@@ -149,7 +152,18 @@ class generate_activity extends \core\task\adhoc_task {
                 ],
                 'outcomes' => $outcomes,
                 'sourcecontent' => $sourcecontent,
+                // Every source the teacher supplied (curriculum, sample content), so
+                // tools chosen because of a source, such as Content Creator for a long
+                // sample, can use it. Existing adapters that ignore this key are unchanged.
+                'sources' => array_values(array_map(static fn($r) => [
+                    'name' => (string)$r->name,
+                    'text' => (string)$r->sourcetext,
+                ], $DB->get_records('local_aicoursebuilder_source', ['programid' => $job->programid], 'id ASC'))),
                 'idempotencyKey' => 'aicb-' . $job->id,
+                // The attempt this request belongs to. An adapter whose service rejects
+                // a reused key with a changed payload can add it to its own key, so a
+                // definite failure can be retried without replaying the failed job.
+                'attempt' => (int)$job->attempts + 1,
             ];
             if ($job->externaljobid) {
                 $externaljobid = (string)$job->externaljobid;
@@ -164,11 +178,20 @@ class generate_activity extends \core\task\adhoc_task {
                 $generationstarted = true;
                 $externaljobid = $class::generate((int)$job->cmid, $brief);
                 $job->externaljobid = $externaljobid;
+                // Remember when this attempt started, so a service job that never finishes
+                // cannot keep the course "building" for ever.
+                $job->resultjson = json_encode(['startedat' => time()]);
             }
             $job->status = 'running';
             $job->timemodified = time();
             $DB->update_record('local_aicoursebuilder_job', $job);
             $state = $class::status((int)$job->cmid, $externaljobid);
+            $started = (int)((json_decode((string)$job->resultjson, true) ?: [])['startedat'] ?? 0);
+            if (in_array($state['status'] ?? '', ['running', 'pending'], true) && $started > 0
+                    && time() - $started > self::MAX_JOB_SECONDS) {
+                $state = ['status' => 'failed', 'retryable' => true,
+                    'error' => get_string('jobtooklong', 'local_aicoursebuilder')];
+            }
             if (
                 ($state['status'] ?? '') === 'failed' && ($state['retryable'] ?? true)
                     && (int)$job->attempts <= 3
@@ -199,6 +222,20 @@ class generate_activity extends \core\task\adhoc_task {
             }
             $job->error = $detail;
             $job->timemodified = time();
+            // A clear refusal (the product is not unlocked, or not set up on this site) means
+            // nothing was started or charged: say so plainly instead of "uncertain".
+            $refused = preg_match('/entitlement|not entitled|not unlocked|switched off|not configured|'
+                . 'site id and api key are not set|lmslabscredentialsmissing/i', $detail);
+            if ($generationstarted && $refused) {
+                $job->status = 'failed';
+                $job->error = get_string('toolnotavailable', 'local_aicoursebuilder', (object)[
+                    'tool' => \local_aicoursebuilder\local\ui::tool_name((string)$job->component),
+                    'detail' => $detail,
+                ]);
+                $DB->update_record('local_aicoursebuilder_job', $job);
+                $this->hide_failed_activity($job);
+                return;
+            }
             if ($generationstarted && $job->status === 'generating' && !$job->externaljobid) {
                 // The remote service may have accepted and charged the request before a network or
                 // response error. Never start another paid generation when its outcome is unknown.
@@ -206,6 +243,7 @@ class generate_activity extends \core\task\adhoc_task {
                 $job->error = 'Generation start outcome is uncertain; check the owning plugin before retrying. Detail: '
                     . $detail;
                 $DB->update_record('local_aicoursebuilder_job', $job);
+                $this->hide_failed_activity($job);
                 return;
             }
             if ((int)$job->attempts <= 3) {
@@ -215,6 +253,7 @@ class generate_activity extends \core\task\adhoc_task {
             } else {
                 $job->status = 'failed';
                 $DB->update_record('local_aicoursebuilder_job', $job);
+                $this->hide_failed_activity($job);
             }
         } finally {
             $lock->release();
@@ -241,8 +280,40 @@ class generate_activity extends \core\task\adhoc_task {
         $job->resultjson = $status === 'complete'
             ? json_encode($state['result'] ?? [], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)
             : null;
+        if ($job->error !== null && preg_match('/entitlement|not entitled|not unlocked/i', $job->error)) {
+            $job->status = 'failed';
+            $job->error = get_string('toolnotavailable', 'local_aicoursebuilder', (object)[
+                'tool' => \local_aicoursebuilder\local\ui::tool_name((string)$job->component),
+                'detail' => $job->error,
+            ]);
+        }
         $job->timemodified = time();
         $DB->update_record('local_aicoursebuilder_job', $job);
+        $this->hide_failed_activity($job);
+        // An activity hidden after an earlier failure is shown again once it is built.
+        if ($status === 'complete' && !empty($job->cmid)
+                && $DB->record_exists('course_modules', ['id' => (int)$job->cmid, 'visible' => 0])
+                && !in_array($job->component, ['mod_learningmapping'], true)) {
+            global $CFG;
+            require_once($CFG->dirroot . '/course/lib.php');
+            set_coursemodule_visible((int)$job->cmid, 1);
+        }
+    }
+
+    /**
+     * Hide an activity that could not be generated, so learners never open an empty one.
+     *
+     * @param \stdClass $job
+     * @return void
+     */
+    private function hide_failed_activity(\stdClass $job): void {
+        global $DB, $CFG;
+        if (empty($job->cmid) || !in_array($job->status, ['failed', 'blocked'], true)
+                || !$DB->record_exists('course_modules', ['id' => (int)$job->cmid, 'visible' => 1])) {
+            return;
+        }
+        require_once($CFG->dirroot . '/course/lib.php');
+        set_coursemodule_visible((int)$job->cmid, 0);
     }
 
     /**
@@ -286,20 +357,37 @@ class generate_activity extends \core\task\adhoc_task {
             'programid = ? AND lessonid IN (' . $idsql . ') AND component NOT IN (?, ?)',
             [(int)$job->programid, 'mod_courseinfo', 'mod_learningmapping'],
             '',
-            'id, status, error'
+            'id, status, error, cmid'
         );
+        // Wait until every lesson activity has finished, successfully or not. One tool that
+        // could not be generated (for example a product the site has not unlocked) must not
+        // stop the course's Course Information and Mapping. Activities that failed are hidden
+        // from learners so the course never shows an empty activity, and they are left out of
+        // Course Information and Mapping; the teacher can regenerate them from the report.
+        $failedcmids = [];
         foreach ($activityjobs as $dependency) {
             if (in_array($dependency->status, ['failed', 'blocked'], true)) {
-                $job->status = 'blocked';
-                $job->error = 'A lesson activity failed, so the course-level result was not generated.';
-                $job->timemodified = time();
-                $DB->update_record('local_aicoursebuilder_job', $job);
-                return true;
+                if (!empty($dependency->cmid)) {
+                    $failedcmids[] = (int)$dependency->cmid;
+                }
+                continue;
             }
             if ($dependency->status !== 'complete') {
                 $this->reschedule(30);
                 return true;
             }
+        }
+        if ($failedcmids) {
+            global $CFG;
+            require_once($CFG->dirroot . '/course/lib.php');
+        }
+        foreach ($failedcmids as $failedcmid) {
+            if ($DB->record_exists('course_modules', ['id' => $failedcmid, 'visible' => 1])) {
+                set_coursemodule_visible($failedcmid, 0);
+            }
+        }
+        if ($failedcmids) {
+            rebuild_course_cache((int)$DB->get_field('course_modules', 'course', ['id' => reset($failedcmids)]), true);
         }
         if ($job->component === 'mod_learningmapping') {
             $courseinfo = $DB->get_record('local_aicoursebuilder_job', [
@@ -308,7 +396,8 @@ class generate_activity extends \core\task\adhoc_task {
                 'component' => 'mod_courseinfo',
             ]);
             if (!$courseinfo || in_array($courseinfo->status, ['failed', 'blocked'], true)) {
-                $job->status = 'blocked';
+                // Nothing was started, so this is a plain failure the teacher can retry.
+                $job->status = 'failed';
                 $job->error = 'Course Information did not complete, so Learning Mapping was not generated.';
                 $job->timemodified = time();
                 $DB->update_record('local_aicoursebuilder_job', $job);

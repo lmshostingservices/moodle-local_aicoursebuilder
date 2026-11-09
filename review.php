@@ -30,6 +30,8 @@ require_login();
 $id = required_param('id', PARAM_INT);
 $context = context_system::instance();
 require_capability('local/aicoursebuilder:create', $context);
+$PAGE->set_context($context);
+$PAGE->set_url(new moodle_url('/local/aicoursebuilder/review.php', ['id' => $id]));
 $program = $DB->get_record('local_aicoursebuilder_program', ['id' => $id, 'userid' => $USER->id], '*', MUST_EXIST);
 if ($program->status !== 'planned') {
     redirect(new moodle_url('/local/aicoursebuilder/report.php', ['id' => $id]));
@@ -176,9 +178,31 @@ foreach ($units as $uindex => $unit) {
 // Outcomes.
 echo html_writer::start_tag('section', ['class' => 'aicb-card']);
 echo html_writer::tag('h3', $str('outcomes'), ['class' => 'aicb-card-title']);
+// An outcome no lesson teaches is never taught or assessed: say so before anything is built.
+$covered = [];
+foreach ($lessons as $planlesson) {
+    foreach ((array)($planlesson['outcomes'] ?? []) as $reference) {
+        $reference = is_array($reference) ? ($reference['code'] ?? $reference['text'] ?? '') : $reference;
+        $covered[clean_param((string)$reference, PARAM_TEXT)] = true;
+    }
+}
+$uncovered = 0;
+foreach ($outcomes as $outcome) {
+    $keys = array_filter([clean_param((string)($outcome['code'] ?? ''), PARAM_TEXT), clean_param((string)($outcome['text'] ?? ''), PARAM_TEXT)]);
+    if (!array_intersect_key($covered, array_flip($keys))) {
+        $uncovered++;
+    }
+}
+if ($uncovered) {
+    echo html_writer::div($str('uncoveredoutcomes', $uncovered), 'alert alert-warning');
+}
 echo html_writer::start_tag('ol', ['class' => 'aicb-outcomes']);
 foreach ($outcomes as $index => $outcome) {
     $tags = '';
+    $keys = array_filter([clean_param((string)($outcome['code'] ?? ''), PARAM_TEXT), clean_param((string)($outcome['text'] ?? ''), PARAM_TEXT)]);
+    if (!array_intersect_key($covered, array_flip($keys))) {
+        $tags .= html_writer::span($str('notinanylesson'), 'aicb-chip aicb-chip-attention');
+    }
     foreach ($outcome['tags'] ?? [] as $tag) {
         $tags .= html_writer::span(s($tag), 'aicb-chip aicb-chip-info');
     }

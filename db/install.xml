@@ -36,6 +36,9 @@
         <FIELD NAME="language" TYPE="char" LENGTH="40" NOTNULL="true" DEFAULT="English"/>
         <FIELD NAME="spelling" TYPE="char" LENGTH="30" NOTNULL="true" DEFAULT=""/>
         <FIELD NAME="learnerprofile" TYPE="text" NOTNULL="true"/>
+        <FIELD NAME="unitcode" TYPE="char" LENGTH="50" NOTNULL="true" DEFAULT="" COMMENT="VET unit code, e.g. CHCCCS031"/>
+        <FIELD NAME="unittitle" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT="" COMMENT="VET unit title"/>
+        <FIELD NAME="nominalhours" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="VET nominal hours"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true"/>
       </FIELDS>
       <KEYS>

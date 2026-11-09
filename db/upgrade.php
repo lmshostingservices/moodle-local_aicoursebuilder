@@ -39,5 +39,21 @@ function xmldb_local_aicoursebuilder_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026110515, 'local', 'aicoursebuilder');
     }
 
+    if ($oldversion < 2026111000) {
+        // VET programs record the unit code, title and nominal hours for Course Information and Mapping.
+        $table = new xmldb_table('local_aicoursebuilder_framework');
+        $fields = [
+            new xmldb_field('unitcode', XMLDB_TYPE_CHAR, '50', null, XMLDB_NOTNULL, null, '', 'learnerprofile'),
+            new xmldb_field('unittitle', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, '', 'unitcode'),
+            new xmldb_field('nominalhours', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'unittitle'),
+        ];
+        foreach ($fields as $field) {
+            if (!$dbman->field_exists($table, $field)) {
+                $dbman->add_field($table, $field);
+            }
+        }
+        upgrade_plugin_savepoint(true, 2026111000, 'local', 'aicoursebuilder');
+    }
+
     return true;
 }

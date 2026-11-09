@@ -30,6 +30,8 @@ require_login();
 $id = required_param('id', PARAM_INT);
 $context = context_system::instance();
 require_capability('local/aicoursebuilder:create', $context);
+$PAGE->set_context($context);
+$PAGE->set_url(new moodle_url('/local/aicoursebuilder/report.php', ['id' => $id]));
 $program = $DB->get_record('local_aicoursebuilder_program', ['id' => $id, 'userid' => $USER->id], '*', MUST_EXIST);
 $jobs = $DB->get_records('local_aicoursebuilder_job', ['programid' => $id], 'id ASC');
 $units = $DB->get_records('local_aicoursebuilder_unit', ['programid' => $id], 'unitnumber ASC');
@@ -93,6 +95,8 @@ if ($program->error) {
 }
 echo html_writer::end_div();
 
+echo html_writer::div($str('coursehiddennote'), 'alert alert-info mt-3');
+
 // Courses, lessons and activities.
 $jobsbylesson = [];
 foreach ($jobs as $job) {
@@ -107,7 +111,18 @@ $tile = static function (\stdClass $job) use ($str): string {
             ['class' => 'aicb-tile-link']
         );
     }
-    $error = $job->error ? html_writer::div(s(shorten_text($job->error, 120)), 'aicb-tile-error') : '';
+    $error = $job->error ? html_writer::div(s(shorten_text($job->error, 220)), 'aicb-tile-error') : '';
+    if (in_array($job->status, ['failed', 'blocked'], true)) {
+        // Blocked means the service may already have started (and charged) the request:
+        // the teacher is told to check the activity first; failed is safe to retry.
+        $error .= html_writer::tag('form',
+            html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]) .
+            html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'jobid', 'value' => $job->id]) .
+            html_writer::tag('button', $str($job->status === 'blocked' ? 'tryagainchecked' : 'tryagain'),
+                ['type' => 'submit', 'class' => 'btn btn-sm btn-outline-primary mt-2']),
+            ['method' => 'post', 'action' => (new moodle_url('/local/aicoursebuilder/retry.php'))->out(false)]
+        );
+    }
     return html_writer::div(
         ui::tool_icon($job->component, 'aicb-toolicon aicb-toolicon-sm') .
         html_writer::div(

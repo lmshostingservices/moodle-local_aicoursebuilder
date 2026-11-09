@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.1 (2026-11-10)
+Quality release from a full test build on Moodle 5.3 with every activity type, plus regression on 4.5 and 5.2.
+- Fix: approving a plan no longer fails when an Anatomy lesson names no single body part; that lesson uses Visual Learning instead.
+- Fix: one activity that cannot be generated (not unlocked, not set up, service error) no longer stops Course Information and Mapping. Failed activities are hidden from learners and left out of both.
+- New: "Try again" on any failed activity in the build report. Course Information and Mapping are re-run so they include it.
+- New: each lesson activity completes on its own learning rule (all correct, finished, listened to every page, viewed all slides, all scenes) instead of on a view.
+- New: courses get real start and end dates, and lesson activities are due at the end of their teaching week, so Course Report and parent reports can show who is behind.
+- New: VET programs record the unit code, unit title and nominal hours and pass them to Course Information and Mapping. The wizard warns when planned hours are far below the nominal hours.
+- New: the review page warns about learning outcomes that are not in any lesson.
+- New: tools that need setup (for example AI scene drafts switched off) show "Needs setup" in the wizard instead of failing during the build.
+- Fix: the plan keeps only the tools the teacher chose; it no longer adds Visual Learning, Learning Activities or Knowledge Check that were switched off.
+- Fix: Course mapping is hidden from learners (teachers see it); uses the Moodle 5.2+ section API.
+- Fix: Content Creator now receives the teacher's sample content; the schedule is sent to Course Information.
+- Fix: a service job that never finishes is stopped after an hour and retried; timeouts and provider outages are retried.
+- Fix: plain messages when a tool is not unlocked or set up ("nothing was generated or charged").
+- Fix: page context and URL set on the approve, plan, progress and review pages (no "Coding problem" warnings).
+- Fix: wizard labels for the Soft Skills and Branched Scenario settings; curriculum framework is a named dropdown with University and Workplace presets; larger sample box; summary shows sample word count.
+- Fix: wording ("no unlock price"), singular counts, and a note that new courses stay hidden until the teacher shows them.
+
 ## 1.0.0 (2026-11-09)
 First stable release, tested end to end on Moodle 4.5, 5.2 and 5.3 with the live LMS Labs service.
 - Course Information is written against the curriculum outcomes the teacher pasted, quoted word for word, with the teaching context.

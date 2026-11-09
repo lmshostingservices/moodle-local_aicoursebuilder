@@ -26,6 +26,8 @@ require_once(__DIR__ . '/../../config.php');
 require_once($CFG->libdir . '/filelib.php');
 
 require_login();
+$PAGE->set_url(new moodle_url('/local/aicoursebuilder/plan.php'));
+$PAGE->set_context(context_system::instance());
 $context = context_system::instance();
 require_capability('local/aicoursebuilder:create', $context);
 require_sesskey();
@@ -45,6 +47,9 @@ $program = [
     'spelling' => $clean('spelling', 30),
     'learnerProfile' => $clean('learnerprofile', 1500),
     'framework' => $clean('framework', 80) ?: 'custom',
+    'unitCode' => mb_substr(trim(clean_param(optional_param('unitcode', '', PARAM_TEXT), PARAM_ALPHANUMEXT)), 0, 50),
+    'unitTitle' => mb_substr(trim(optional_param('unittitle', '', PARAM_TEXT)), 0, 255),
+    'nominalHours' => max(0, min(5000, optional_param('nominalhours', 0, PARAM_INT))),
 ];
 $curriculum = $clean('curriculum', 50000);
 $upload = $_FILES['curriculumfile'] ?? null;
@@ -124,6 +129,8 @@ $payload = [
     ],
 ];
 $plan = \local_aicoursebuilder\local\api_client::plan($payload);
+// Remember the teacher's tool choice so the plan is never topped up with tools they switched off.
+$delivery['allowedTools'] = $selectedtools;
 $programid = \local_aicoursebuilder\local\course_builder::save_plan(
     (int)$USER->id,
     $program['name'] ?: $program['subject'],

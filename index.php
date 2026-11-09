@@ -71,9 +71,9 @@ if (!$programs) {
             $framework->subject ?? '',
         ]);
         $counts = [
-            get_string('coursescount', 'local_aicoursebuilder', count($plan['units'] ?? [])),
-            get_string('lessonscount', 'local_aicoursebuilder', count($plan['lessons'] ?? [])),
-            get_string('outcomescount', 'local_aicoursebuilder', count($plan['outcomes'] ?? [])),
+            (count($plan['units'] ?? []) === 1 ? get_string('coursescount_one', 'local_aicoursebuilder') : get_string('coursescount', 'local_aicoursebuilder', count($plan['units'] ?? []))),
+            (count($plan['lessons'] ?? []) === 1 ? get_string('lessonscount_one', 'local_aicoursebuilder') : get_string('lessonscount', 'local_aicoursebuilder', count($plan['lessons'] ?? []))),
+            (count($plan['outcomes'] ?? []) === 1 ? get_string('outcomescount_one', 'local_aicoursebuilder') : get_string('outcomescount', 'local_aicoursebuilder', count($plan['outcomes'] ?? []))),
         ];
         $actions = [];
         if ($program->status === 'planned') {

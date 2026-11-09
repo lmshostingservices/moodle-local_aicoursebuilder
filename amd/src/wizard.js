@@ -115,19 +115,43 @@ define([], function() {
             fill(document.getElementById("state_options"), stateOptions[countryName] || ["National curriculum"]);
             fill(document.getElementById("level_options"), sectorLevels[sectorName] || schoolLevels[countryName] || []);
             const school = !sectorName || sectorName === "School" || sectorName === "Tutoring centre";
-            const frameworks = countryName === "Singapore" && school
-                ? ["sg_moe", "custom"]
-                : countryName === "Australia" && school
-                    ? ["au_curriculum", "custom"]
-                    : countryName === "Australia" && sectorName === "VET / RTO"
-                        ? ["vet", "custom"]
-                        : ["custom"];
-            fill(document.getElementById("framework_options"), frameworks);
-            if (framework && (framework.value === "custom" || !framework.value) && frameworks.length > 1) {
-                framework.value = frameworks[0];
+            let frameworks = ["custom"];
+            if (countryName === "Singapore" && school) {
+                frameworks = ["sg_moe", "custom"];
+            } else if (countryName === "Australia" && school) {
+                frameworks = ["au_curriculum", "custom"];
+            } else if (countryName === "Australia" && sectorName === "VET / RTO") {
+                frameworks = ["vet", "custom"];
+            } else if (sectorName === "Higher education") {
+                frameworks = ["university", "custom"];
+            } else if (sectorName === "Workplace") {
+                frameworks = ["workplace", "custom"];
+            }
+            if (framework && framework.tagName === "SELECT") {
+                const previous = framework.value;
+                const labels = JSON.parse(framework.dataset.labels || "{}");
+                framework.replaceChildren(...frameworks.map(value => {
+                    const option = document.createElement("option");
+                    option.value = value;
+                    option.textContent = labels[value] || value;
+                    return option;
+                }));
+                framework.value = frameworks.includes(previous) && previous !== "custom" ? previous : frameworks[0];
+            }
+            const vet = document.getElementById("aicb-vet-fields");
+            if (vet && framework) {
+                vet.hidden = framework.value !== "vet";
             }
         };
 
+        if (framework) {
+            framework.addEventListener("change", () => {
+                const vet = document.getElementById("aicb-vet-fields");
+                if (vet) {
+                    vet.hidden = framework.value !== "vet";
+                }
+            });
+        }
         const lessonsEl = form.querySelector('[data-aicb="lessons"]');
         const sum = (key, text) => {
             const el = form.querySelector(`[data-aicb-sum="${key}"]`);
@@ -150,6 +174,10 @@ define([], function() {
             if (file && file.files && file.files.length) {
                 parts.push(file.files[0].name);
             }
+            const samplewords = val("id_samplecontent").split(/\s+/).filter(Boolean).length;
+            if (samplewords) {
+                parts.push(`${samplewords} words of sample content`);
+            }
             sum("curriculum", parts.join(" · "));
             const selfpaced = document.getElementById("id_selfpaced");
             sum("time", selfpaced && selfpaced.checked
@@ -160,6 +188,16 @@ define([], function() {
             sum("hours", `${p.hours}`);
             if (lessonsEl) {
                 lessonsEl.textContent = `About ${p.lessons} lessons`;
+            }
+            // A VET unit planned for far fewer hours than its nominal hours is an amount-of-
+            // training risk: say so while the teacher can still change the time.
+            const nominal = num("id_nominalhours", 0);
+            const fw = document.getElementById("id_framework");
+            const note = form.querySelector('[data-aicb="hoursnote"]');
+            if (note) {
+                note.hidden = !(fw && fw.value === "vet" && nominal > 0 && p.hours < nominal / 2);
+                note.textContent = `You have planned about ${p.hours} learner hours for a unit with ${nominal} nominal hours.`
+                    + " Check the amount of training is enough for your learners.";
             }
             const tools = Array.from(form.querySelectorAll(".aicb-tool-check:checked"))
                 .map(input => input.closest(".aicb-tool").querySelector(".aicb-tool-name").firstChild.textContent.trim());

@@ -112,8 +112,22 @@ echo html_writer::tag('h3', $str('step2'), ['class' => 'aicb-card-title']);
 echo html_writer::tag('p', $str('step2desc'), ['class' => 'aicb-card-lead']);
 echo html_writer::start_div('row');
 echo $field('name', $str('title'), $text('name', ['required' => 'required', 'placeholder' => $str('example_title')]), '', 'col-md-8');
-echo $field('framework', $str('framework'), $text('framework', ['list' => 'framework_options', 'value' => 'custom']) .
-    html_writer::tag('datalist', '', ['id' => 'framework_options']), '', 'col-md-4');
+echo $field('framework', $str('framework'), html_writer::select(
+    ['custom' => $str('framework_custom')], 'framework', 'custom', false,
+    ['id' => 'id_framework', 'class' => 'form-select', 'data-labels' => json_encode(array_combine(
+        ['vet', 'au_curriculum', 'sg_moe', 'university', 'workplace', 'custom'],
+        array_map(fn($k) => $str('framework_' . $k), ['vet', 'au_curriculum', 'sg_moe', 'university', 'workplace', 'custom'])
+    ))]
+), '', 'col-md-4');
+echo html_writer::start_div('col-12', ['id' => 'aicb-vet-fields', 'hidden' => 'hidden']);
+echo html_writer::start_div('row');
+echo $field('unitcode', $str('unitcode'), $text('unitcode', ['placeholder' => 'CHCCCS031', 'maxlength' => 50]),
+    $str('unitcode_help'), 'col-md-3');
+echo $field('unittitle', $str('unittitle'), $text('unittitle', ['maxlength' => 255,
+    'placeholder' => $str('unittitle_example')]), '', 'col-md-6');
+echo $field('nominalhours', $str('nominalhours'), $number('nominalhours', '', 0, 5000), $str('nominalhours_help'), 'col-md-3');
+echo html_writer::end_div();
+echo html_writer::end_div();
 echo $field('curriculum', $str('sourcecurriculum'), html_writer::tag('textarea', '', [
     'id' => 'id_curriculum', 'name' => 'curriculum', 'rows' => 9, 'class' => 'form-control aicb-mono',
     'placeholder' => $str('example_curriculum')]), '', 'col-12');
@@ -122,7 +136,7 @@ echo $field('curriculumfile', $str('curriculumupload'), html_writer::empty_tag('
     'accept' => '.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ]), $str('curriculumupload_help'), 'col-md-6');
 echo $field('samplecontent', $str('samplesource'), html_writer::tag('textarea', '', [
-    'id' => 'id_samplecontent', 'name' => 'samplecontent', 'rows' => 3, 'class' => 'form-control',
+    'id' => 'id_samplecontent', 'name' => 'samplecontent', 'rows' => 9, 'class' => 'form-control',
     'placeholder' => $str('example_sample')]), '', 'col-md-6');
 echo $field('learnerprofile', $str('learnerprofile'), html_writer::tag('textarea', '', [
     'id' => 'id_learnerprofile', 'name' => 'learnerprofile', 'rows' => 2, 'class' => 'form-control',
@@ -155,6 +169,7 @@ echo html_writer::div(
     html_writer::div($str('lessonsfromtime'), 'aicb-pace-note'),
     'aicb-pace'
 );
+echo html_writer::div('', 'alert alert-warning mt-2', ['data-aicb' => 'hoursnote', 'hidden' => 'hidden']);
 echo html_writer::end_tag('section');
 
 // Step 4: activities.
@@ -164,15 +179,19 @@ echo html_writer::tag('p', $str('step4desc'), ['class' => 'aicb-card-lead']);
 echo html_writer::start_div('aicb-tools');
 foreach (ui::LESSON_TOOLS as $component) {
     $installed = ui::tool_installed($component);
+    $notready = $installed ? \local_aicoursebuilder\local\generator_runtime::component_ready($component) : null;
     $badge = in_array($component, ui::TAGGED_TOOLS, true)
         ? html_writer::span($str('taggedonly'), 'aicb-chip aicb-chip-info')
         : ($component === 'mod_visuallearning' ? html_writer::span($str('default'), 'aicb-chip aicb-chip-done') : '');
     if (!$installed) {
         $badge = html_writer::span($str('notinstalled'), 'aicb-chip aicb-chip-muted');
+    } else if ($notready !== null) {
+        $badge = html_writer::span($str('needssetup'), 'aicb-chip aicb-chip-muted', ['title' => $notready]);
     }
+    $usable = $installed && $notready === null;
     $input = html_writer::empty_tag('input', array_filter([
         'type' => 'checkbox', 'name' => 'tools[]', 'value' => $component, 'class' => 'aicb-tool-check',
-        'checked' => $installed ? 'checked' : null, 'disabled' => $installed ? null : 'disabled',
+        'checked' => $usable ? 'checked' : null, 'disabled' => $usable ? null : 'disabled',
     ]));
     echo html_writer::tag(
         'label',
@@ -181,12 +200,12 @@ foreach (ui::LESSON_TOOLS as $component) {
             ui::tool_icon($component) .
             html_writer::div(
                 html_writer::div(s(ui::tool_name($component)) . ' ' . $badge, 'aicb-tool-name') .
-                html_writer::div(s(ui::tool_description($component)), 'aicb-tool-desc'),
+                html_writer::div(s($notready ?? ui::tool_description($component)), 'aicb-tool-desc'),
                 'aicb-tool-text'
             ),
             'aicb-tool-body'
         ),
-        ['class' => 'aicb-tool' . ($installed ? '' : ' is-disabled')]
+        ['class' => 'aicb-tool' . ($usable ? '' : ' is-disabled')]
     );
 }
 echo html_writer::end_div();
