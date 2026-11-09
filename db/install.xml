@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="local/aicoursebuilder/db" VERSION="2026110515" COMMENT="AI Course Builder program and generation records">
+  <TABLES>
+    <TABLE NAME="local_aicoursebuilder_program" COMMENT="Course-builder plans and build state">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="draft"/>
+        <FIELD NAME="categoryid" TYPE="int" LENGTH="10" NOTNULL="false"/>
+        <FIELD NAME="deliveryjson" TYPE="text" NOTNULL="true"/>
+        <FIELD NAME="planjson" TYPE="text" NOTNULL="true"/>
+        <FIELD NAME="error" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="user_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="category_fk" TYPE="foreign" FIELDS="categoryid" REFTABLE="course_categories" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="userid_status" UNIQUE="false" FIELDS="userid,status"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="local_aicoursebuilder_framework" COMMENT="Curriculum and learner context">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="programid" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="framework" TYPE="char" LENGTH="80" NOTNULL="true" DEFAULT="custom"/>
+        <FIELD NAME="country" TYPE="char" LENGTH="80" NOTNULL="true" DEFAULT=""/>
+        <FIELD NAME="state" TYPE="char" LENGTH="80" NOTNULL="true" DEFAULT=""/>
+        <FIELD NAME="sector" TYPE="char" LENGTH="120" NOTNULL="true" DEFAULT=""/>
+        <FIELD NAME="level" TYPE="char" LENGTH="120" NOTNULL="true" DEFAULT=""/>
+        <FIELD NAME="subject" TYPE="char" LENGTH="160" NOTNULL="true" DEFAULT=""/>
+        <FIELD NAME="language" TYPE="char" LENGTH="40" NOTNULL="true" DEFAULT="English"/>
+        <FIELD NAME="spelling" TYPE="char" LENGTH="30" NOTNULL="true" DEFAULT=""/>
+        <FIELD NAME="learnerprofile" TYPE="text" NOTNULL="true"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="program_fk" TYPE="foreign" FIELDS="programid" REFTABLE="local_aicoursebuilder_program" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="program_unique" UNIQUE="true" FIELDS="programid"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="local_aicoursebuilder_outcome" COMMENT="Extracted learning outcomes">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="programid" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="code" TYPE="char" LENGTH="40" NOTNULL="false"/>
+        <FIELD NAME="outcometext" TYPE="text" NOTNULL="true"/>
+        <FIELD NAME="strand" TYPE="char" LENGTH="120" NOTNULL="true" DEFAULT="General"/>
+        <FIELD NAME="weight" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1"/>
+        <FIELD NAME="tagsjson" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="program_fk" TYPE="foreign" FIELDS="programid" REFTABLE="local_aicoursebuilder_program" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="program_order" UNIQUE="false" FIELDS="programid,sortorder"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="local_aicoursebuilder_unit" COMMENT="Course units">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="programid" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="unitnumber" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true"/>
+        <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="false"/>
+        <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="program_fk" TYPE="foreign" FIELDS="programid" REFTABLE="local_aicoursebuilder_program" REFFIELDS="id"/>
+        <KEY NAME="course_fk" TYPE="foreign" FIELDS="courseid" REFTABLE="course" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="program_unit" UNIQUE="true" FIELDS="programid,unitnumber"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="local_aicoursebuilder_lesson" COMMENT="Lessons in a course unit">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="programid" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="unitid" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="lessonnumber" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true"/>
+        <FIELD NAME="outcomesjson" TYPE="text" NOTNULL="true"/>
+        <FIELD NAME="toolsjson" TYPE="text" NOTNULL="true"/>
+        <FIELD NAME="sectionid" TYPE="int" LENGTH="10" NOTNULL="false"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="planned"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="program_fk" TYPE="foreign" FIELDS="programid" REFTABLE="local_aicoursebuilder_program" REFFIELDS="id"/>
+        <KEY NAME="unit_fk" TYPE="foreign" FIELDS="unitid" REFTABLE="local_aicoursebuilder_unit" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="program_lesson" UNIQUE="true" FIELDS="programid,lessonnumber"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="local_aicoursebuilder_source" COMMENT="Curriculum sources submitted for planning">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="programid" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="name" TYPE="char" LENGTH="120" NOTNULL="true"/>
+        <FIELD NAME="sourcetext" TYPE="text" NOTNULL="true"/>
+        <FIELD NAME="sourcehash" TYPE="char" LENGTH="64" NOTNULL="true"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="program_fk" TYPE="foreign" FIELDS="programid" REFTABLE="local_aicoursebuilder_program" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="program_sourcehash" UNIQUE="false" FIELDS="programid,sourcehash"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="local_aicoursebuilder_job" COMMENT="One generation job per planned plugin activity">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="programid" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="lessonid" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="component" TYPE="char" LENGTH="100" NOTNULL="true"/>
+        <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="false"/>
+        <FIELD NAME="externaljobid" TYPE="char" LENGTH="100" NOTNULL="false"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="queued"/>
+        <FIELD NAME="attempts" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="error" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="resultjson" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="program_fk" TYPE="foreign" FIELDS="programid" REFTABLE="local_aicoursebuilder_program" REFFIELDS="id"/>
+        <KEY NAME="lesson_fk" TYPE="foreign" FIELDS="lessonid" REFTABLE="local_aicoursebuilder_lesson" REFFIELDS="id"/>
+        <KEY NAME="cm_fk" TYPE="foreign" FIELDS="cmid" REFTABLE="course_modules" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="status_created" UNIQUE="false" FIELDS="status,timecreated"/>
+        <INDEX NAME="lesson_component" UNIQUE="true" FIELDS="lessonid,component"/>
+      </INDEXES>
+    </TABLE>
+  </TABLES>
+</XMLDB>
