@@ -55,5 +55,15 @@ function xmldb_local_aicoursebuilder_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026111000, 'local', 'aicoursebuilder');
     }
 
+    if ($oldversion < 2026111101) {
+        // Each job remembers the price the teacher approved, so the build never charges more.
+        $table = new xmldb_table('local_aicoursebuilder_job');
+        $field = new xmldb_field('approvedcredits', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'attempts');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        upgrade_plugin_savepoint(true, 2026111101, 'local', 'aicoursebuilder');
+    }
+
     return true;
 }

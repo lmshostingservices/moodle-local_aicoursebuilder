@@ -288,3 +288,4 @@ $string['repair_titles'] = 'Lesson titles that were cut short were completed.';
 $string['repair_contentcreator'] = 'Content Creator is used only in the lessons that match your sample content.';
 $string['repair_added'] = 'Outcomes the plan left out were added to lessons: {$a}.';
 $string['repair_addedone'] = '{$a->outcome} to lesson {$a->lesson}';
+$string['pricechanged'] = 'This activity now costs {$a->now} credits, more than the {$a->approved} you approved, so nothing was charged. Press "Try again" to build it at {$a->now} credits.';

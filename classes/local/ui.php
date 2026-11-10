@@ -211,15 +211,16 @@ final class ui {
      * @param string $component
      * @param string $lessontitle
      * @param array $outcomes outcome texts
+     * @param int $minutes minutes in one session (0 when unknown)
      * @return int|null
      */
-    public static function estimate(string $component, string $lessontitle, array $outcomes): ?int {
+    public static function estimate(string $component, string $lessontitle, array $outcomes, int $minutes = 0): ?int {
         try {
             if (!generator_runtime::component_available($component)) {
                 return null;
             }
             return generator_runtime::estimate($component, [
-                'lesson' => ['title' => $lessontitle, 'outcomes' => array_values($outcomes)],
+                'lesson' => ['title' => $lessontitle, 'outcomes' => array_values($outcomes), 'minutes' => $minutes],
                 'outcomes' => array_values($outcomes),
             ]);
         } catch (\Throwable $e) {

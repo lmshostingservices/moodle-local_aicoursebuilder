@@ -1,7 +1,7 @@
 # AI Course Builder
 
-Release: 1.0.1
-Numeric version: 2026111000
+Release: 1.0.3
+Numeric version: 2026111101
 
 AI Course Builder helps teachers turn curriculum material into a reviewed Moodle course plan. Teachers choose the country, level, subject, delivery schedule and learning tools, then review the generated plan before approving course and activity creation.
 

@@ -185,10 +185,14 @@ final class course_builder {
             }
         }
         $now = time();
+        $current = $DB->get_records_list('local_aicoursebuilder_job', 'id', $ids);
         foreach ($ids as $id) {
             $DB->update_record('local_aicoursebuilder_job', (object)[
                 'id' => $id, 'status' => 'queued', 'externaljobid' => null, 'error' => null,
                 'resultjson' => null, 'timemodified' => $now,
+                // "Try again" after a price change accepts the price shown in the message.
+                'approvedcredits' => strpos((string)$current[$id]->error, '[pricechanged]') === 0
+                    ? null : $current[$id]->approvedcredits,
             ]);
             $task = new \local_aicoursebuilder\task\generate_activity();
             $task->set_custom_data(['jobid' => (int)$id]);
@@ -356,6 +360,12 @@ final class course_builder {
                 'sortorder' => $number,
             ]);
         }
+        // For the approved prices: each outcome's text by its key, and the minutes in one session.
+        $outcometext = [];
+        foreach ($plan['outcomes'] as $outcome) {
+            $outcometext[!empty($outcome['code']) ? (string)$outcome['code'] : (string)$outcome['text']] = (string)$outcome['text'];
+        }
+        $minutes = self::lesson_minutes(json_decode((string)$program->deliveryjson, true) ?: [], count($plan['lessons']));
         $validcomponents = [
             'mod_visuallearning', 'mod_contentcreator', 'mod_productexplainer', 'mod_aiactivities',
             'mod_aiknowledgecheck', 'mod_aisoftskills', 'mod_aibranchedscenario',
@@ -387,6 +397,9 @@ final class course_builder {
                     // These two are course-level activities, created once per unit below.
                     continue;
                 }
+                // The price the teacher approved for this activity. The build never charges more.
+                $approved = ui::estimate($component, $title, array_values(array_filter(array_map(
+                    static fn($key) => $outcometext[(string)$key] ?? '', (array)($lesson['outcomes'] ?? [])))), $minutes);
                 $DB->insert_record('local_aicoursebuilder_job', (object)[
                     'programid' => $programid,
                     'lessonid' => $lessonid,
@@ -395,6 +408,7 @@ final class course_builder {
                     'externaljobid' => null,
                     'status' => 'queued',
                     'attempts' => 0,
+                    'approvedcredits' => $approved,
                     'error' => null,
                     'resultjson' => null,
                     'timecreated' => $now,
@@ -419,6 +433,7 @@ final class course_builder {
                     'externaljobid' => null,
                     'status' => 'queued',
                     'attempts' => 0,
+                    'approvedcredits' => ui::estimate($component, (string)$firstlesson->title, []),
                     'error' => null,
                     'resultjson' => null,
                     'timecreated' => $now,
@@ -584,6 +599,23 @@ final class course_builder {
             $task->set_custom_data(['jobid' => (int)$job->id]);
             \core\task\manager::queue_adhoc_task($task);
         }
+    }
+
+    /**
+     * Minutes in one lesson's session: the planned session length, or for self-paced
+     * courses the planned learner hours shared across the lessons (60 when unknown).
+     *
+     * @param array $delivery
+     * @param int $lessoncount
+     * @return int
+     */
+    public static function lesson_minutes(array $delivery, int $lessoncount): int {
+        $minutes = (int)($delivery['minutesPerSession'] ?? 0);
+        if ($minutes <= 0 && !empty($delivery['totalLearnerHours']) && $lessoncount > 0) {
+            $minutes = (int)round((float)$delivery['totalLearnerHours'] * 60 / $lessoncount);
+        }
+        // Unknown: plan for a typical one-hour session, as the wizard does.
+        return $minutes > 0 ? min(600, $minutes) : 60;
     }
 
     /**

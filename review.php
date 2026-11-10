@@ -75,11 +75,12 @@ $outcometexts = static function (array $lesson) use ($outcomebykey): array {
 };
 
 // Credit estimates, per lesson tool and per course-level activity.
+$minutes = \local_aicoursebuilder\local\course_builder::lesson_minutes($delivery, count($lessons)) ?: 60;
 $prices = [];
 $totals = [];
 foreach ($lessons as $lesson) {
     foreach (ui::LESSON_TOOLS as $component) {
-        $prices[(int)$lesson['number']][$component] = ui::estimate($component, (string)$lesson['title'], $outcometexts($lesson));
+        $prices[(int)$lesson['number']][$component] = ui::estimate($component, (string)$lesson['title'], $outcometexts($lesson), $minutes);
     }
 }
 $courselevel = [];
@@ -87,7 +88,6 @@ foreach (['mod_courseinfo', 'mod_learningmapping'] as $component) {
     $courselevel[$component] = ui::estimate($component, (string)($units[0]['title'] ?? ''), []);
 }
 
-$minutes = (int)($delivery['minutesPerSession'] ?? 60);
 $hours = round(count($lessons) * $minutes / 60, 1);
 
 echo $OUTPUT->header();

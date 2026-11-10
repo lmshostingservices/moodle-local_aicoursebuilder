@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3 (2026-11-10)
+- Fix: the build now never charges more than the price the teacher approved. Each activity remembers its approved price. If the plugin's price has gone up since approval, nothing is charged and the activity says so; "Try again" builds it at the new price.
+- New: every activity is told how long the lesson's session is (or, for self-paced courses, the learner hours shared across the lessons), so tools can size their activities. The review page prices activities for that session length.
+
 ## 1.0.2 (2026-11-10)
 More control for the teacher, courses for every sector, and a safe fallback for older activity plugins.
 - Fix: an activity plugin that is installed but has no AI Course Builder support yet (for example Knowledge Check 1.6.0) shows "Needs update" and stays unticked. Before this, the teacher could pick it and saving the plan failed with "plugin adapters are not ready".

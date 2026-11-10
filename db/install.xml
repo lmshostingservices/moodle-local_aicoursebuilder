@@ -134,6 +134,7 @@
         <FIELD NAME="externaljobid" TYPE="char" LENGTH="100" NOTNULL="false"/>
         <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="queued"/>
         <FIELD NAME="attempts" TYPE="int" LENGTH="2" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="approvedcredits" TYPE="int" LENGTH="10" NOTNULL="false" COMMENT="Credits the teacher approved for this activity; the build never charges more."/>
         <FIELD NAME="error" TYPE="text" NOTNULL="false"/>
         <FIELD NAME="resultjson" TYPE="text" NOTNULL="false"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true"/>

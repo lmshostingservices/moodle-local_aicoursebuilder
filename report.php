@@ -118,7 +118,7 @@ $tile = static function (\stdClass $job) use ($str): string {
             ['class' => 'aicb-tile-link']
         );
     }
-    $error = $job->error ? html_writer::div(s(shorten_text($job->error, 220)), 'aicb-tile-error') : '';
+    $error = $job->error ? html_writer::div(s(shorten_text(preg_replace('/^\[[a-z]+\] /', '', (string)$job->error), 220)), 'aicb-tile-error') : '';
     if (in_array($job->status, ['failed', 'blocked'], true)) {
         // Blocked means the service may already have started (and charged) the request:
         // the teacher is told to check the activity first; failed is safe to retry.

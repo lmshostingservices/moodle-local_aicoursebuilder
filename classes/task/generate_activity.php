@@ -158,6 +158,11 @@ class generate_activity extends \core\task\adhoc_task {
                 'lesson' => [
                     'id' => (int)$lesson->id,
                     'title' => (string)$lesson->title,
+                    // Minutes in this lesson's session, so tools can size their activity.
+                    'minutes' => \local_aicoursebuilder\local\course_builder::lesson_minutes(
+                        json_decode((string)$program->deliveryjson, true) ?: [],
+                        $DB->count_records('local_aicoursebuilder_lesson', ['programid' => $job->programid])
+                    ),
                     'outcomes' => $outcomes,
                     'content' => $lessoncontent,
                 ],
@@ -182,7 +187,17 @@ class generate_activity extends \core\task\adhoc_task {
             } else {
                 // An estimate is a read-only price check. Keep the job retryable if
                 // it fails; only mark the request uncertain once generation starts.
-                $class::estimate($brief);
+                $price = (int)$class::estimate($brief);
+                // Never charge more than the teacher approved.
+                if ($job->approvedcredits !== null && $price > (int)$job->approvedcredits) {
+                    $job->status = 'failed';
+                    $job->error = '[pricechanged] ' . get_string('pricechanged', 'local_aicoursebuilder',
+                        (object)['approved' => (int)$job->approvedcredits, 'now' => $price]);
+                    $job->timemodified = time();
+                    $DB->update_record('local_aicoursebuilder_job', $job);
+                    $this->hide_failed_activity($job);
+                    return;
+                }
                 $job->status = 'generating';
                 $job->attempts++;
                 $job->timemodified = time();
