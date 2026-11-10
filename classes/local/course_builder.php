@@ -41,8 +41,12 @@ final class course_builder {
         if (empty($plan['outcomes']) || empty($plan['units']) || empty($plan['lessons'])) {
             throw new \moodle_exception('invalidplan', 'local_aicoursebuilder');
         }
-        $plan = self::normalise_plan($plan, isset($delivery['allowedTools']) ? (array)$delivery['allowedTools'] : null);
-        self::assert_tagged_tools($plan);
+        $plan = self::repair_plan($plan, $sources, $name, $delivery);
+        $plan = self::normalise_plan(
+            $plan,
+            isset($delivery['allowedTools']) ? (array)$delivery['allowedTools'] : null,
+            isset($delivery['toolModes']) ? (array)$delivery['toolModes'] : null
+        );
         $missing = [];
         foreach ($plan['lessons'] as $lesson) {
             foreach (array_unique($lesson['tools'] ?? []) as $component) {
@@ -196,6 +200,102 @@ final class course_builder {
     }
 
     /**
+     * Save the teacher's edits to a plan that has not been approved yet.
+     *
+     * Lessons are renumbered in the order the courses list them, references to deleted
+     * outcomes are dropped and notes are trimmed, so the saved plan is always one that
+     * the review page and approval understand.
+     *
+     * @param int $programid
+     * @param int $userid
+     * @param array $plan
+     * @return array the plan as saved
+     */
+    public static function save_draft(int $programid, int $userid, array $plan): array {
+        global $DB;
+        $program = $DB->get_record('local_aicoursebuilder_program', ['id' => $programid, 'userid' => $userid], '*', MUST_EXIST);
+        if ($program->status !== 'planned' || $program->categoryid) {
+            throw new \moodle_exception('programnotapprovable', 'local_aicoursebuilder');
+        }
+        $plan = self::tidy_plan($plan);
+        $program->planjson = json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $program->timemodified = time();
+        $DB->update_record('local_aicoursebuilder_program', $program);
+        return $plan;
+    }
+
+    /**
+     * Renumber lessons by course order and drop references that no longer exist.
+     *
+     * @param array $plan
+     * @return array
+     */
+    public static function tidy_plan(array $plan): array {
+        $outcomes = [];
+        $keys = [];
+        foreach (array_values((array)($plan['outcomes'] ?? [])) as $outcome) {
+            if (!is_array($outcome) || trim((string)($outcome['text'] ?? '')) === '') {
+                continue;
+            }
+            $outcome['text'] = \core_text::substr(trim(clean_param((string)$outcome['text'], PARAM_TEXT)), 0, 1000);
+            $outcome['code'] = \core_text::substr(trim(clean_param((string)($outcome['code'] ?? ''), PARAM_TEXT)), 0, 50);
+            $key = $outcome['code'] !== '' ? $outcome['code'] : $outcome['text'];
+            if (isset($keys[$key])) {
+                continue;
+            }
+            $keys[$key] = true;
+            $outcomes[] = $outcome;
+        }
+        $bynumber = [];
+        foreach ((array)($plan['lessons'] ?? []) as $lesson) {
+            if (is_array($lesson)) {
+                $bynumber[(int)($lesson['number'] ?? 0)] = $lesson;
+            }
+        }
+        $units = [];
+        $lessons = [];
+        foreach (array_values((array)($plan['units'] ?? [])) as $unit) {
+            if (!is_array($unit)) {
+                continue;
+            }
+            $numbers = [];
+            foreach ((array)($unit['lessons'] ?? []) as $old) {
+                $lesson = $bynumber[(int)$old] ?? null;
+                if ($lesson === null) {
+                    continue;
+                }
+                unset($bynumber[(int)$old]);
+                $lesson['number'] = count($lessons) + 1;
+                $lesson['title'] = \core_text::substr(trim(clean_param((string)($lesson['title'] ?? ''), PARAM_TEXT)), 0, 255);
+                $lesson['outcomes'] = array_values(array_unique(array_filter(array_map('strval', (array)($lesson['outcomes'] ?? [])),
+                    static fn($k) => isset($keys[$k]))));
+                $lesson['tools'] = array_values(array_unique(array_map('strval', (array)($lesson['tools'] ?? []))));
+                $lesson['notes'] = \core_text::substr(trim(clean_param((string)($lesson['notes'] ?? ''), PARAM_TEXT)), 0, 1000);
+                if ($lesson['notes'] === '') {
+                    unset($lesson['notes']);
+                }
+                $numbers[] = $lesson['number'];
+                $lessons[] = $lesson;
+            }
+            if ($numbers) {
+                $unit['number'] = count($units) + 1;
+                $unit['lessons'] = $numbers;
+                $units[] = $unit;
+            }
+        }
+        $plan['outcomes'] = $outcomes;
+        $plan['units'] = $units;
+        $plan['lessons'] = $lessons;
+        $notes = \core_text::substr(trim(clean_param((string)($plan['teacherNotes'] ?? ''), PARAM_TEXT)), 0, 2000);
+        if ($notes === '') {
+            unset($plan['teacherNotes']);
+        } else {
+            $plan['teacherNotes'] = $notes;
+        }
+        return $plan;
+    }
+
+    /**
      * Create a private course category, one hidden course per unit, and lesson sections.
      *
      * Activity generation remains separate so a partially failed tool cannot be reported as a
@@ -206,7 +306,7 @@ final class course_builder {
      * @param array $plan
      * @return void
      */
-    public static function approve(int $programid, int $userid, array $plan): void {
+    public static function approve(int $programid, int $userid, array $plan, int $parentcategory = 0): void {
         global $CFG, $DB;
         require_once($CFG->dirroot . '/course/modlib.php');
         $program = $DB->get_record('local_aicoursebuilder_program', ['id' => $programid, 'userid' => $userid], '*', MUST_EXIST);
@@ -216,7 +316,6 @@ final class course_builder {
         if (empty($plan['outcomes']) || empty($plan['units']) || empty($plan['lessons'])) {
             throw new \moodle_exception('invalidplan', 'local_aicoursebuilder');
         }
-        self::assert_tagged_tools($plan);
         foreach (['mod_courseinfo', 'mod_learningmapping'] as $component) {
             if (!\local_aicoursebuilder\local\generator_runtime::component_available($component)) {
                 throw new \moodle_exception('generatornotready', 'local_aicoursebuilder', '', $component);
@@ -327,11 +426,19 @@ final class course_builder {
                 ]);
             }
         }
-        $category = \core_course_category::create((object)[
-            'name' => $program->name,
-            'idnumber' => 'aicb-' . $programid,
-            'parent' => 0,
-        ]);
+        // A new private category for the build, inside the chosen category, unless the teacher may
+        // only create courses there: then the hidden courses go straight into that category.
+        $parentcontext = $parentcategory ? \context_coursecat::instance($parentcategory) : \context_system::instance();
+        if (!$parentcategory || has_capability('moodle/category:manage', $parentcontext)) {
+            $category = \core_course_category::create((object)[
+                'name' => $program->name,
+                'idnumber' => 'aicb-' . $programid,
+                'parent' => $parentcategory,
+                'visible' => 0,
+            ]);
+        } else {
+            $category = \core_course_category::get($parentcategory);
+        }
         $units = $DB->get_records('local_aicoursebuilder_unit', ['programid' => $programid], 'unitnumber ASC');
         $jobbylessoncomponent = [];
         foreach ($DB->get_records('local_aicoursebuilder_job', ['programid' => $programid]) as $job) {
@@ -342,7 +449,11 @@ final class course_builder {
         $delivery = json_decode((string)$program->deliveryjson, true) ?: [];
         $perweek = max(1, (int)($delivery['sessionsPerWeek'] ?? 1));
         $selfpaced = !empty($delivery['selfPaced']);
-        $coursestart = usergetmidnight(time());
+        // The teacher's chosen start date (or today) and course format (or AI Course Format).
+        $coursestart = !empty($delivery['startDate']) ? (int)$delivery['startDate'] : usergetmidnight(time());
+        $enabledformats = \core_plugin_manager::instance()->get_enabled_plugins('format') ?: [];
+        $courseformat = in_array((string)($delivery['courseFormat'] ?? ''), $enabledformats, true)
+            ? (string)$delivery['courseFormat'] : 'aicourse';
         foreach ($units as $unit) {
             $unitlessoncount = $DB->count_records('local_aicoursebuilder_lesson', ['unitid' => $unit->id]);
             $unitweeks = max(1, (int)ceil($unitlessoncount / $perweek));
@@ -353,7 +464,7 @@ final class course_builder {
                 'shortname' => sprintf('AICB-%d-%02d', $programid, $unit->unitnumber),
                 'category' => $category->id,
                 'visible' => 0,
-                'format' => 'aicourse',
+                'format' => $courseformat,
                 'numsections' => 0,
                 // Course Report reads native activity completion, which needs course completion on.
                 'enablecompletion' => 1,
@@ -361,18 +472,24 @@ final class course_builder {
             $unit->courseid = $course->id;
             $DB->update_record('local_aicoursebuilder_unit', $unit);
             $lessons = $DB->get_records('local_aicoursebuilder_lesson', ['unitid' => $unit->id], 'lessonnumber ASC');
+            // Lessons are numbered across the whole program, but each course starts again at
+            // section 1: the second course's lessons 7-12 are its sections 1-6.
             $sectionnumbers = [];
+            $position = [];
             foreach ($lessons as $lesson) {
-                $sectionnumbers[] = $lesson->lessonnumber;
+                $position[$lesson->id] = count($sectionnumbers) + 1;
+                $sectionnumbers[] = $position[$lesson->id];
             }
             $mappingsection = count($lessons) + 1;
             $sectionnumbers[] = $mappingsection;
             course_create_sections_if_missing($course->id, $sectionnumbers);
             $framework = $DB->get_record('local_aicoursebuilder_framework', ['programid' => $programid], '*', MUST_EXIST);
             foreach ($lessons as $lesson) {
-                $section = $DB->get_record('course_sections', ['course' => $course->id, 'section' => $lesson->lessonnumber], '*', MUST_EXIST);
+                $sectionnumber = $position[$lesson->id];
+                $section = $DB->get_record('course_sections', ['course' => $course->id, 'section' => $sectionnumber], '*', MUST_EXIST);
+                // "Lesson N · title": Course Report and parent reports find lesson sections by this name.
                 $section->name = get_string('lessonsection', 'local_aicoursebuilder', [
-                    'number' => $lesson->lessonnumber,
+                    'number' => $sectionnumber,
                     'title' => $lesson->title,
                 ]);
                 $section->sequence = '';
@@ -409,8 +526,8 @@ final class course_builder {
                     $module = self::create_module_instance(
                         $course,
                         self::module_name((string)$component),
-                        (int)$lesson->lessonnumber,
-                        'Lesson ' . (int)$lesson->lessonnumber . ' — ' . self::tool_label((string)$component),
+                        $sectionnumber,
+                        get_string('lessonn', 'local_aicoursebuilder', $sectionnumber) . ' — ' . self::tool_label((string)$component),
                         $lesson,
                         $programid,
                         $framework
@@ -470,6 +587,284 @@ final class course_builder {
     }
 
     /**
+     * Repair what the planning service gets wrong, using the teacher's own curriculum.
+     *
+     * - Keeps the teacher's outcome wording and codes (performance criteria, content
+     *   descriptions, LO numbers) when the service rewords them or drops the codes.
+     * - Restores the coded outcomes when the service replaced them with topic phrases.
+     * - Puts every outcome in a lesson: none is left untaught.
+     * - Gives lessons full titles instead of a sentence cut off with "…", and the course
+     *   the name the teacher typed.
+     * - Uses a long sample only in the lessons it matches, unless the teacher asked for
+     *   Content Creator in every lesson.
+     * What was repaired is listed in $plan['repairs'] for the review page.
+     *
+     * @param array $plan
+     * @param array $sources [['name' => ..., 'text' => ...]]
+     * @param string $name the program name the teacher typed
+     * @param array $delivery
+     * @return array
+     */
+    public static function repair_plan(array $plan, array $sources, string $name, array $delivery = []): array {
+        $repairs = [];
+        $norm = static function (string $text): string {
+            $text = \core_text::strtolower(trim($text));
+            $text = preg_replace('/\([^)]*\)/u', ' ', $text);
+            $text = preg_replace('/[^\p{L}\p{N} ]+/u', ' ', $text);
+            return trim(preg_replace('/\s+/u', ' ', $text));
+        };
+        $similar = static function (string $a, string $b) use ($norm): float {
+            $a = $norm($a);
+            $b = $norm($b);
+            if ($a === '' || $b === '') {
+                return 0.0;
+            }
+            if ($a === $b) {
+                return 100.0;
+            }
+            similar_text($a, $b, $percent);
+            return (float)$percent;
+        };
+        // Coded lines in the teacher's curriculum: "1.1 Interpret …", "AC9S8U02 …", "LO2 …".
+        $coded = [];
+        $plain = [];
+        $elements = [];
+        foreach ($sources as $source) {
+            foreach (preg_split('/\R/u', (string)($source['text'] ?? '')) as $line) {
+                $line = trim(preg_replace('/^\s*[-•*–]\s*/u', '', $line));
+                if (preg_match('/^(?:[Ee]lement\s+)?(\d{1,2})[.:)]?\s+(\p{Lu}.{5,})$/u', $line, $m)
+                        && !preg_match('/^\d+\.\d/', $line)) {
+                    $elements[(int)$m[1]] = trim(rtrim($m[2], ':'));
+                    continue;
+                }
+                if (preg_match('/^((?:[A-Z]{2,}[A-Z0-9]*\d[A-Z0-9]*)|(?:LO\s?\d{1,2})|(?:\d{1,2}\.\d{1,2}(?:\.\d{1,2})?))\s*[-–:.)]?\s+(\S.{7,})$/u',
+                        $line, $m)) {
+                    $code = preg_replace('/\s+/', '', $m[1]);
+                    $text = trim($m[2]);
+                    if (!isset($coded[$code]) && \core_text::strlen($text) <= 400) {
+                        $coded[$code] = $text;
+                    }
+                } else if (\core_text::strlen($line) >= 15 && \core_text::strlen($line) <= 400) {
+                    $plain[] = $line;
+                }
+            }
+        }
+        $outcomes = array_values((array)($plan['outcomes'] ?? []));
+        $lessons = array_values((array)($plan['lessons'] ?? []));
+        $rename = [];
+        $matched = 0;
+        foreach ($outcomes as $index => $outcome) {
+            $text = (string)($outcome['text'] ?? '');
+            $oldkey = !empty($outcome['code']) ? (string)$outcome['code'] : $text;
+            $best = null;
+            $bestscore = 0.0;
+            foreach ($coded as $code => $line) {
+                $score = $similar($text, $line);
+                if ($score > $bestscore) {
+                    $best = $code;
+                    $bestscore = $score;
+                }
+            }
+            if ($best !== null && $bestscore >= 85) {
+                $matched++;
+                if (empty($outcome['code'])) {
+                    $outcome['code'] = $best;
+                    $repairs['codes'] = true;
+                }
+                if ($coded[$best] !== $text) {
+                    $outcome['text'] = $coded[$best];
+                    $repairs['wording'] = true;
+                }
+                if (preg_match('/^(\d+)\.\d/', (string)$outcome['code'], $m) && isset($elements[(int)$m[1]])
+                        && in_array((string)($outcome['strand'] ?? ''), ['', 'General'], true)) {
+                    $outcome['strand'] = $elements[(int)$m[1]];
+                }
+            }
+            if ($best === null || $bestscore < 85) {
+                // An uncoded outcome: keep the teacher's own wording when the service reworded it.
+                foreach ($plain as $line) {
+                    $line = rtrim($line, '.');
+                    if ($line !== rtrim($text, '.') && $similar($text, $line) >= 90) {
+                        $outcome['text'] = $line;
+                        $repairs['wording'] = true;
+                        break;
+                    }
+                }
+            }
+            $newkey = !empty($outcome['code']) ? (string)$outcome['code'] : (string)$outcome['text'];
+            if ($newkey !== $oldkey) {
+                $rename[$oldkey] = $newkey;
+            }
+            $outcomes[$index] = $outcome;
+        }
+        foreach ($lessons as &$lesson) {
+            $lesson['outcomes'] = array_values(array_unique(array_map(static function ($key) use ($rename) {
+                $key = is_array($key) ? (string)($key['code'] ?? $key['text'] ?? '') : (string)$key;
+                return $rename[$key] ?? $key;
+            }, (array)($lesson['outcomes'] ?? []))));
+        }
+        unset($lesson);
+        // The service replaced the coded outcomes with topic phrases: put the teacher's back.
+        $realcoded = array_filter($coded, static fn($code) => !preg_match('/^[A-Z]{3,}\d{3}[A-Z]?$/', (string)$code)
+            || \core_text::strlen((string)$code) < 8, ARRAY_FILTER_USE_KEY);
+        if (count($realcoded) >= 2 && $matched === 0 && $lessons) {
+            $outcomes = [];
+            foreach ($realcoded as $code => $text) {
+                $strand = preg_match('/^(\d+)\.\d/', (string)$code, $m) && isset($elements[(int)$m[1]])
+                    ? $elements[(int)$m[1]] : 'General';
+                $outcomes[] = ['code' => (string)$code, 'text' => $text, 'strand' => $strand, 'weight' => 2, 'tags' => []];
+            }
+            foreach ($lessons as &$lesson) {
+                $lesson['outcomes'] = [];
+            }
+            unset($lesson);
+            $repairs['restored'] = true;
+        }
+        // Every outcome in a lesson: spread any left out across the lessons in order.
+        $covered = [];
+        foreach ($lessons as $lesson) {
+            foreach ($lesson['outcomes'] as $key) {
+                $covered[$key] = true;
+            }
+        }
+        $total = count($outcomes);
+        foreach ($outcomes as $index => $outcome) {
+            $key = !empty($outcome['code']) ? (string)$outcome['code'] : (string)($outcome['text'] ?? '');
+            if ($key === '' || isset($covered[$key]) || !$lessons) {
+                continue;
+            }
+            $target = (int)min(count($lessons) - 1, floor($index * count($lessons) / max(1, $total)));
+            $lessons[$target]['outcomes'][] = $key;
+            $covered[$key] = true;
+            $repairs['added'][] = ['outcome' => $key, 'lesson' => (int)($lessons[$target]['number'] ?? $target + 1)];
+        }
+        // A lesson with no outcome gets the outcome it is most about.
+        foreach ($lessons as &$lesson) {
+            if ($lesson['outcomes'] || !$outcomes) {
+                continue;
+            }
+            $titlewords = array_filter(explode(' ', $norm((string)($lesson['title'] ?? ''))), static fn($w) => \core_text::strlen($w) >= 4);
+            $bestkey = null;
+            $bestcount = -1;
+            foreach ($outcomes as $outcome) {
+                $key = !empty($outcome['code']) ? (string)$outcome['code'] : (string)($outcome['text'] ?? '');
+                $text = ' ' . $norm((string)($outcome['text'] ?? '')) . ' ';
+                $count = 0;
+                foreach ($titlewords as $word) {
+                    $stem = \core_text::substr($word, 0, max(4, \core_text::strlen($word) - 2));
+                    $count += strpos($text, ' ' . $stem) !== false ? 1 : 0;
+                }
+                if ($count > $bestcount) {
+                    $bestkey = $key;
+                    $bestcount = $count;
+                }
+            }
+            $lesson['outcomes'][] = $bestkey;
+        }
+        unset($lesson);
+        // Full lesson titles instead of a sentence cut off with "…".
+        $titlefrom = static function (string $text): string {
+            $text = trim(preg_replace('/\s*\([^)]*\)/u', '', $text));
+            $text = rtrim($text, " .;:");
+            if (\core_text::strlen($text) > 140) {
+                $cut = \core_text::substr($text, 0, 140);
+                $text = rtrim(\core_text::substr($cut, 0, (int)strrpos($cut, ' ')), ' ,;:') . '…';
+            }
+            return $text;
+        };
+        $bykey = [];
+        foreach ($outcomes as $outcome) {
+            $bykey[!empty($outcome['code']) ? (string)$outcome['code'] : (string)($outcome['text'] ?? '')] = (string)($outcome['text'] ?? '');
+        }
+        foreach ($lessons as &$lesson) {
+            $title = trim((string)($lesson['title'] ?? ''));
+            if ($title !== '' && !preg_match('/(…|\.\.\.)$/u', $title)) {
+                continue;
+            }
+            $prefix = $norm(preg_replace('/(…|\.\.\.)$/u', '', $title));
+            $full = '';
+            foreach ($bykey as $text) {
+                if ($prefix !== '' && strpos($norm($text), $prefix) === 0) {
+                    $full = $text;
+                    break;
+                }
+            }
+            if ($full === '' && !empty($lesson['outcomes'][0]) && isset($bykey[$lesson['outcomes'][0]])) {
+                $full = $bykey[$lesson['outcomes'][0]];
+            }
+            if ($full !== '') {
+                $lesson['title'] = $titlefrom($full);
+                $repairs['titles'] = true;
+            }
+        }
+        unset($lesson);
+        // The course is called what the teacher called it.
+        $units = array_values((array)($plan['units'] ?? []));
+        $name = trim($name);
+        if ($name !== '') {
+            foreach ($units as $u => &$unit) {
+                $title = trim((string)($unit['title'] ?? ''));
+                $looksbroken = $title === '' || preg_match('/(…|\.\.\.)$/u', $title);
+                foreach ($lessons as $lesson) {
+                    if ($title !== '' && $norm($title) !== '' && strpos($norm((string)$lesson['title']), $norm(rtrim($title, '….'))) === 0) {
+                        $looksbroken = true;
+                    }
+                }
+                if (count($units) === 1 && ($looksbroken || $title !== $name)) {
+                    $unit['title'] = $name;
+                } else if ($looksbroken) {
+                    $unit['title'] = $name . ' – ' . get_string('partn', 'local_aicoursebuilder', $u + 1);
+                }
+            }
+            unset($unit);
+        }
+        // A long sample belongs in the lessons it matches, unless the teacher wants it in every lesson.
+        $sample = '';
+        foreach ($sources as $source) {
+            if (stripos((string)($source['name'] ?? ''), 'sample') !== false) {
+                $sample .= ' ' . (string)$source['text'];
+            }
+        }
+        $ccmode = (string)(($delivery['toolModes'] ?? [])['mod_contentcreator'] ?? 'auto');
+        $withcc = array_keys(array_filter($lessons, static fn($l) => in_array('mod_contentcreator', (array)($l['tools'] ?? []), true)));
+        if ($sample !== '' && $ccmode !== 'always' && count($lessons) > 2 && count($withcc) > count($lessons) / 2) {
+            $words = static function (string $text) use ($norm): array {
+                return array_unique(array_filter(explode(' ', $norm($text)), static fn($w) => \core_text::strlen($w) >= 5));
+            };
+            $samplewords = array_flip($words($sample));
+            $scores = [];
+            foreach ($withcc as $i) {
+                $text = (string)$lessons[$i]['title'];
+                foreach ($lessons[$i]['outcomes'] as $key) {
+                    $text .= ' ' . ($bykey[$key] ?? $key);
+                }
+                $scores[$i] = count(array_intersect_key(array_flip($words($text)), $samplewords));
+            }
+            arsort($scores);
+            $keep = array_slice(array_keys(array_filter($scores, static fn($v) => $v >= 2)), 0, max(1, (int)ceil(count($lessons) / 3)), false);
+            if (!$keep) {
+                $keep = [array_key_first($scores)];
+            }
+            foreach ($withcc as $i) {
+                if (!in_array($i, $keep, true)) {
+                    $left = array_values(array_diff((array)$lessons[$i]['tools'], ['mod_contentcreator']));
+                    if ($left) {
+                        $lessons[$i]['tools'] = $left;
+                        $repairs['contentcreator'] = true;
+                    }
+                }
+            }
+        }
+        $plan['outcomes'] = $outcomes;
+        $plan['lessons'] = $lessons;
+        $plan['units'] = $units;
+        if ($repairs) {
+            $plan['repairs'] = $repairs;
+        }
+        return $plan;
+    }
+
+    /**
      * Tidy a planner response before it is stored.
      *
      * Titles never repeat the "Unit 01 ·" or "Lesson 3 ·" prefix that Moodle adds itself, and every
@@ -478,7 +873,7 @@ final class course_builder {
      * @param array $plan
      * @return array
      */
-    public static function normalise_plan(array $plan, ?array $allowed = null): array {
+    public static function normalise_plan(array $plan, ?array $allowed = null, ?array $modes = null): array {
         $usable = static function (string $component) use ($allowed): bool {
             return ($allowed === null || in_array($component, $allowed, true))
                 && generator_runtime::component_available($component);
@@ -486,7 +881,11 @@ final class course_builder {
         $strip = static function (string $title): string {
             $title = preg_replace('/^\s*(unit|course|lesson|module)\s*\d+\s*[·:\-–.]\s*/iu', '', $title);
             $title = trim((string)$title);
-            return \core_text::strlen($title) > 90 ? rtrim(\core_text::substr($title, 0, 88), ' ,;:') . '…' : $title;
+            if (\core_text::strlen($title) <= 140) {
+                return $title;
+            }
+            $cut = \core_text::substr($title, 0, 140);
+            return rtrim(\core_text::substr($cut, 0, (int)strrpos($cut, ' ')), ' ,;:') . '…';
         };
         foreach ($plan['units'] as &$unit) {
             $unit['title'] = $strip((string)($unit['title'] ?? ''));
@@ -532,11 +931,16 @@ final class course_builder {
             if (!$hasteaching && $usable('mod_visuallearning')) {
                 $add[] = 'mod_visuallearning';
             }
-            if (!in_array('mod_aiactivities', $tools, true) && $usable('mod_aiactivities')) {
-                $add[] = 'mod_aiactivities';
+            foreach (['mod_aiactivities', 'mod_aiknowledgecheck'] as $core) {
+                if (!in_array($core, $tools, true) && $usable($core) && ($modes === null || ($modes[$core] ?? '') === 'always')) {
+                    $add[] = $core;
+                }
             }
-            if (!in_array('mod_aiknowledgecheck', $tools, true) && $usable('mod_aiknowledgecheck')) {
-                $add[] = 'mod_aiknowledgecheck';
+            // Tools the teacher asked for in every lesson.
+            foreach ((array)$modes as $component => $mode) {
+                if ($mode === 'always' && is_string($component) && $usable($component) && !in_array($component, $tools, true)) {
+                    $add[] = $component;
+                }
             }
             if ($allowed !== null) {
                 // The planner may also suggest a tool the teacher switched off.
@@ -585,12 +989,14 @@ final class course_builder {
                 set_section_visible($courseid, $mappingsection, 0);
             }
         }
-        if (!class_exists('\format_aicourse\local\icons')) {
+        if (!class_exists('\format_aicourse\local\icons') || get_course($courseid)->format !== 'aicourse') {
             return;
         }
         $library = \format_aicourse\local\icons::get_library();
+        $n = 0;
         foreach ($lessons as $lesson) {
-            $icon = 'num-' . min(10, max(1, (int)$lesson->lessonnumber));
+            $n++;
+            $icon = 'num-' . min(10, $n);
             if (!empty($lesson->sectionid) && isset($library[$icon])) {
                 \format_aicourse\local\icons::set_section_icon($courseid, (int)$lesson->sectionid, $icon);
             }
@@ -942,46 +1348,6 @@ final class course_builder {
         return 0;
     }
 
-    /**
-     * Keep domain-specific generators restricted to lessons linked to tagged outcomes.
-     *
-     * @param array $plan
-     * @return void
-     */
-    private static function assert_tagged_tools(array $plan): void {
-        $outcomes = [];
-        foreach ($plan['outcomes'] ?? [] as $outcome) {
-            $tags = self::clean_outcome_tags($outcome['tags'] ?? []);
-            $identifiers = [];
-            if (!empty($outcome['code'])) {
-                $identifiers[] = clean_param($outcome['code'], PARAM_TEXT);
-            }
-            if (!empty($outcome['text'])) {
-                $identifiers[] = clean_param($outcome['text'], PARAM_TEXT);
-            }
-            foreach ($identifiers as $identifier) {
-                $outcomes[$identifier] = $tags;
-            }
-        }
-        foreach ($plan['lessons'] ?? [] as $lesson) {
-            $tags = [];
-            foreach ((array)($lesson['outcomes'] ?? []) as $reference) {
-                if (is_array($reference)) {
-                    $reference = $reference['code'] ?? $reference['text'] ?? '';
-                }
-                $reference = clean_param((string)$reference, PARAM_TEXT);
-                $tags = array_merge($tags, $outcomes[$reference] ?? []);
-            }
-            $tags = array_unique($tags);
-            $tools = (array)($lesson['tools'] ?? []);
-            if (in_array('mod_aisafetyhazards', $tools, true) && !in_array('workplace_safety', $tags, true)) {
-                throw new \moodle_exception('toolrequiresoutcometag', 'local_aicoursebuilder', '', 'mod_aisafetyhazards');
-            }
-            if (in_array('mod_aianatomy', $tools, true) && !in_array('anatomy_physiology', $tags, true)) {
-                throw new \moodle_exception('toolrequiresoutcometag', 'local_aicoursebuilder', '', 'mod_aianatomy');
-            }
-        }
-    }
 
     /**
      * Allow only the controlled Course Builder outcome tags.

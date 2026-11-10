@@ -29,7 +29,7 @@ require_login();
 $PAGE->set_url(new moodle_url('/local/aicoursebuilder/plan.php'));
 $PAGE->set_context(context_system::instance());
 $context = context_system::instance();
-require_capability('local/aicoursebuilder:create', $context);
+\local_aicoursebuilder\local\ui::require_builder();
 require_sesskey();
 
 $clean = static function (string $name, int $max = 1000): string {
@@ -109,6 +109,15 @@ $delivery = [
     'selfPaced' => (bool)$selfpaced,
     'totalLearnerHours' => optional_param('totallearnerhours', 0, PARAM_FLOAT),
 ];
+// Start date (YYYY-MM-DD, the teacher's own day) and course format.
+$startdate = optional_param('startdate', '', PARAM_RAW_TRIMMED); // pipeline-ignore: PARAM_RAW_TRIMMED — matched against a strict date pattern below.
+if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $startdate, $m) && checkdate((int)$m[2], (int)$m[3], (int)$m[1])) {
+    $delivery['startDate'] = make_timestamp((int)$m[1], (int)$m[2], (int)$m[3]);
+}
+$courseformat = optional_param('courseformat', '', PARAM_PLUGIN);
+if ($courseformat !== '' && in_array($courseformat, \core_plugin_manager::instance()->get_enabled_plugins('format') ?: [], true)) {
+    $delivery['courseFormat'] = $courseformat;
+}
 $allowedtools = [
     'mod_visuallearning', 'mod_contentcreator', 'mod_productexplainer', 'mod_aiactivities',
     'mod_aiknowledgecheck', 'mod_aisoftskills', 'mod_aibranchedscenario',
@@ -118,19 +127,30 @@ $selectedtools = array_values(array_intersect($allowedtools, optional_param_arra
 if (!$selectedtools) {
     throw new moodle_exception('invalidplan', 'local_aicoursebuilder');
 }
+$rawmodes = optional_param_array('toolmode', [], PARAM_ALPHA);
+$toolmodes = [];
+foreach ($selectedtools as $component) {
+    $toolmodes[$component] = in_array($rawmodes[$component] ?? '', ['always', 'auto'], true)
+        ? $rawmodes[$component] : \local_aicoursebuilder\local\ui::default_tool_mode($component);
+}
+// Remember the teacher's choice, so their usual activities and settings are used next time.
+set_user_preference('local_aicoursebuilder_tools', implode(',', array_map(
+    static fn($c) => $c . ':' . $toolmodes[$c], $selectedtools)));
 $payload = [
     'program' => $program,
     'sources' => $sources,
     'delivery' => $delivery,
     'tools' => [
         'allowed' => $selectedtools,
-        'softSkills' => optional_param('softskills', 'auto', PARAM_ALPHA),
-        'scenarios' => optional_param('scenarios', 'auto', PARAM_ALPHA),
+        'softSkills' => $toolmodes['mod_aisoftskills'] ?? 'never',
+        'scenarios' => $toolmodes['mod_aibranchedscenario'] ?? 'never',
+        'modes' => $toolmodes,
     ],
 ];
 $plan = \local_aicoursebuilder\local\api_client::plan($payload);
 // Remember the teacher's tool choice so the plan is never topped up with tools they switched off.
 $delivery['allowedTools'] = $selectedtools;
+$delivery['toolModes'] = $toolmodes;
 $programid = \local_aicoursebuilder\local\course_builder::save_plan(
     (int)$USER->id,
     $program['name'] ?: $program['subject'],

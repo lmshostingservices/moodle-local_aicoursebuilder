@@ -28,7 +28,7 @@ require_once(__DIR__ . '/../../config.php');
 
 require_login();
 $context = context_system::instance();
-require_capability('local/aicoursebuilder:create', $context);
+\local_aicoursebuilder\local\ui::require_builder();
 
 ui::setup_page(new moodle_url('/local/aicoursebuilder/index.php'), get_string('pluginname', 'local_aicoursebuilder'));
 

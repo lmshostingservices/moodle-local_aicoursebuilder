@@ -61,6 +61,18 @@ final class generator_runtime {
         if (!self::component_available($component)) {
             return null;
         }
+        // AI Anatomy is unlocked once per site; when its last check says it is locked, say so
+        // up front instead of letting the build fail.
+        if ($component === 'mod_aianatomy' && class_exists('\\mod_aianatomy\\local\\unlock')) {
+            try {
+                if ((\mod_aianatomy\local\unlock::state()['status'] ?? '') === 'locked') {
+                    return get_string('anatomylocked', 'local_aicoursebuilder');
+                }
+            } catch (\Throwable $e) {
+                // Unknown state: let the build report any refusal plainly.
+                unset($e);
+            }
+        }
         $class = '\\' . $component . '\\aicoursebuilder\\generator';
         if (!method_exists($class, 'native_ready')) {
             return null;

@@ -31,16 +31,24 @@ require_sesskey();
 $id = required_param('id', PARAM_INT);
 $rawplan = required_param('planjson', PARAM_RAW); // pipeline-ignore: PARAM_RAW — JSON is decoded immediately and structurally validated before use.
 $context = context_system::instance();
-require_capability('local/aicoursebuilder:create', $context);
-require_capability('moodle/course:create', $context);
+\local_aicoursebuilder\local\ui::require_builder();
 
 $program = $DB->get_record('local_aicoursebuilder_program', ['id' => $id, 'userid' => $USER->id], '*', MUST_EXIST);
+// Where the courses go: a new top-level category (site course creators), or a category the
+// teacher may create courses in.
+$parentcategory = optional_param('parentcategory', 0, PARAM_INT);
+if ($parentcategory) {
+    if (!array_key_exists($parentcategory, \local_aicoursebuilder\local\ui::target_categories())) {
+        throw new required_capability_exception(context_coursecat::instance($parentcategory), 'moodle/course:create', 'nopermissions', '');
+    }
+} else {
+    require_capability('moodle/course:create', $context);
+    require_capability('moodle/category:manage', $context);
+}
 $plan = json_decode($rawplan, true);
 if (!is_array($plan) || empty($plan['outcomes']) || empty($plan['units']) || empty($plan['lessons'])) {
     throw new moodle_exception('invalidplan', 'local_aicoursebuilder');
 }
-$plan['outcomes'] = array_values($plan['outcomes']);
-$plan['units'] = array_values($plan['units']);
-$plan['lessons'] = array_values($plan['lessons']);
-\local_aicoursebuilder\local\course_builder::approve($id, (int)$USER->id, $plan);
+$plan = \local_aicoursebuilder\local\course_builder::tidy_plan($plan);
+\local_aicoursebuilder\local\course_builder::approve($id, (int)$USER->id, $plan, $parentcategory);
 redirect(new moodle_url('/local/aicoursebuilder/report.php', ['id' => $id]));

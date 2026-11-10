@@ -25,9 +25,11 @@ define([], function() {
     "use strict";
 
     const countryOptions = [
-        "Australia", "Canada", "New Zealand", "Singapore", "United Kingdom", "United States", "International"
+        "Australia", "Canada", "India", "Ireland", "Malaysia", "New Zealand", "Philippines", "Singapore", "South Africa",
+        "Thailand", "United Arab Emirates", "United Kingdom", "United States", "International"
     ];
-    const sectorOptions = ["School", "Tutoring centre", "VET / RTO", "Higher education", "Workplace"];
+    const sectorOptions = ["School", "Tutoring centre", "VET / RTO", "College / further education", "Higher education",
+        "Workplace", "Professional development (CPD)", "Short course", "Community / general interest"];
     const stateOptions = {
         Australia: ["National curriculum", "ACT", "New South Wales", "Northern Territory", "Queensland", "South Australia",
             "Tasmania", "Victoria", "Western Australia"],
@@ -57,7 +59,11 @@ define([], function() {
         "VET / RTO": ["Certificate I", "Certificate II", "Certificate III", "Certificate IV", "Diploma", "Advanced Diploma",
             "Graduate Certificate", "Graduate Diploma"],
         "Higher education": ["Foundation", "Undergraduate", "Postgraduate", "Doctoral"],
-        Workplace: ["Induction", "Entry level", "Experienced practitioner", "Supervisor", "Manager", "Professional development"]
+        Workplace: ["Induction", "Entry level", "Experienced practitioner", "Supervisor", "Manager", "Professional development"],
+        "College / further education": ["Foundation", "Level 1", "Level 2", "Level 3", "Level 4", "Level 5", "Access to higher education"],
+        "Professional development (CPD)": ["Introductory", "Intermediate", "Advanced", "Specialist"],
+        "Short course": ["Beginner", "Intermediate", "Advanced", "All levels"],
+        "Community / general interest": ["Beginner", "Intermediate", "Advanced", "All ages", "Adults", "Seniors"]
     };
 
     const fill = (list, values) => {
@@ -124,7 +130,7 @@ define([], function() {
                 frameworks = ["vet", "custom"];
             } else if (sectorName === "Higher education") {
                 frameworks = ["university", "custom"];
-            } else if (sectorName === "Workplace") {
+            } else if (sectorName === "Workplace" || sectorName === "Professional development (CPD)") {
                 frameworks = ["workplace", "custom"];
             }
             if (framework && framework.tagName === "SELECT") {

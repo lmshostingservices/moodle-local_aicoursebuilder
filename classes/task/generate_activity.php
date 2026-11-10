@@ -129,6 +129,14 @@ class generate_activity extends \core\task\adhoc_task {
                     $sourcecontent = $lessoncontent;
                 }
             }
+            // The teacher's own instructions (for the whole build and for this lesson)
+            // go first, so every tool follows them without needing its own field.
+            $teachernotes = self::teacher_notes((string)$program->planjson, (int)$lesson->lessonnumber);
+            if ($teachernotes !== '') {
+                $prefix = "Teacher instructions (follow these):\n" . $teachernotes . "\n\n";
+                $lessoncontent = \core_text::substr($prefix . $lessoncontent, 0, 50000);
+                $sourcecontent = \core_text::substr($prefix . $sourcecontent, 0, 50000);
+            }
             $brief = [
                 'programid' => (int)$job->programid,
                 'lessonid' => (int)$lesson->id,
@@ -143,6 +151,9 @@ class generate_activity extends \core\task\adhoc_task {
                     'learnerProfile' => (string)($framework->learnerprofile ?? ''),
                     'language' => (string)($framework->language ?? 'English'),
                     'spelling' => (string)($framework->spelling ?? ''),
+                    // Adapters choose their VET or general route from this (Learning Activities did
+                    // not receive it, so every course took the VET route).
+                    'framework' => (string)($framework->framework ?? ''),
                 ],
                 'lesson' => [
                     'id' => (int)$lesson->id,
@@ -159,6 +170,7 @@ class generate_activity extends \core\task\adhoc_task {
                     'name' => (string)$r->name,
                     'text' => (string)$r->sourcetext,
                 ], $DB->get_records('local_aicoursebuilder_source', ['programid' => $job->programid], 'id ASC'))),
+                'teacherNotes' => $teachernotes,
                 'idempotencyKey' => 'aicb-' . $job->id,
                 // The attempt this request belongs to. An adapter whose service rejects
                 // a reused key with a changed payload can add it to its own key, so a
@@ -225,7 +237,22 @@ class generate_activity extends \core\task\adhoc_task {
             // A clear refusal (the product is not unlocked, or not set up on this site) means
             // nothing was started or charged: say so plainly instead of "uncertain".
             $refused = preg_match('/entitlement|not entitled|not unlocked|switched off|not configured|'
-                . 'site id and api key are not set|lmslabscredentialsmissing/i', $detail);
+                . 'site id and api key are not set|lmslabscredentialsmissing|not enough credits|insufficient credits/i', $detail);
+            // Errors raised inside Moodle before any request could reach LMS Labs (bad input,
+            // a missing record, a permission or database problem) cannot have charged anything.
+            $beforerequest = $error instanceof \coding_exception
+                || $error instanceof \invalid_parameter_exception
+                || $error instanceof \required_capability_exception
+                || $error instanceof \dml_exception
+                || ($error instanceof \moodle_exception && in_array($error->errorcode,
+                    ['error_no_topics', 'error_no_content', 'invalidrecord', 'invalidcoursemodule', 'invalidplan'], true));
+            if ($generationstarted && $beforerequest && !$refused) {
+                $job->status = 'failed';
+                $job->error = get_string('failedbeforerequest', 'local_aicoursebuilder', $detail);
+                $DB->update_record('local_aicoursebuilder_job', $job);
+                $this->hide_failed_activity($job);
+                return;
+            }
             if ($generationstarted && $refused) {
                 $job->status = 'failed';
                 $job->error = get_string('toolnotavailable', 'local_aicoursebuilder', (object)[
@@ -297,6 +324,74 @@ class generate_activity extends \core\task\adhoc_task {
             global $CFG;
             require_once($CFG->dirroot . '/course/lib.php');
             set_coursemodule_visible((int)$job->cmid, 1);
+        }
+        if ($status === 'complete' && !empty($job->cmid)) {
+            $this->set_card_images((int)$job->cmid);
+        }
+    }
+
+    /**
+     * Give the lesson's card, and the activity's card, a picture from what was just generated.
+     *
+     * In AI Course Format every lesson is a card. Without this they all stayed plain colour.
+     * The first picture generated in a lesson (Visual Learning, Slide Flow, Content Creator or a
+     * scenario) becomes the lesson's card image. A card that already has an image, for example
+     * one the teacher uploaded, is never replaced. Nothing here can fail the build.
+     *
+     * @param int $cmid
+     * @return void
+     */
+    private function set_card_images(int $cmid): void {
+        global $DB;
+        try {
+            if (!class_exists('\\format_aicourse\\local\\cardimage')) {
+                return;
+            }
+            $cm = $DB->get_record('course_modules', ['id' => $cmid]);
+            if (!$cm || $DB->get_field('course', 'format', ['id' => $cm->course]) !== 'aicourse') {
+                return;
+            }
+            $context = \context_module::instance($cmid, IGNORE_MISSING);
+            if (!$context) {
+                return;
+            }
+            $fs = get_file_storage();
+            $image = null;
+            $candidates = $DB->get_records_select('files', "contextid = ? AND filename <> '.' AND filesize > 2000
+                AND mimetype IN ('image/jpeg', 'image/png', 'image/webp')", [$context->id], 'filearea, itemid, id', 'id', 0, 1);
+            if ($candidates) {
+                $image = $fs->get_file_by_id((int)array_key_first($candidates));
+            }
+            if (!$image) {
+                return;
+            }
+            // A card needs a small picture: scale the first image down to 1200 px wide as a JPEG.
+            $bytes = $image->get_content();
+            if (function_exists('imagecreatefromstring') && ($source = @imagecreatefromstring($bytes))) {
+                $width = imagesx($source);
+                $scaled = $width > 1200 ? imagescale($source, 1200) : $source;
+                ob_start();
+                imagejpeg($scaled, null, 82);
+                $bytes = (string)ob_get_clean();
+            }
+            if ($bytes === '' || strlen($bytes) > \format_aicourse\local\cardimage::MAX_BYTES) {
+                return;
+            }
+            $coursecontext = \context_course::instance((int)$cm->course);
+            $targets = [
+                [\format_aicourse\local\cardimage::TYPE_SECTION, (int)$cm->section],
+                [\format_aicourse\local\cardimage::TYPE_CM, $cmid],
+            ];
+            foreach ($targets as [$type, $id]) {
+                $area = \format_aicourse\local\cardimage::area($type);
+                if ($fs->get_area_files($coursecontext->id, 'format_aicourse', $area, $id, 'id', false)) {
+                    continue;
+                }
+                \format_aicourse\local\cardimage::store((int)$cm->course, $type, $id, $bytes, 'ai');
+            }
+            rebuild_course_cache((int)$cm->course, true);
+        } catch (\Throwable $e) {
+            debugging('AI Course Builder could not set a card image: ' . $e->getMessage(), DEBUG_DEVELOPER);
         }
     }
 
@@ -409,5 +504,33 @@ class generate_activity extends \core\task\adhoc_task {
             }
         }
         return false;
+    }
+
+    /**
+     * The teacher's instructions for the whole build and for one lesson, as plain text.
+     *
+     * @param string $planjson the approved plan
+     * @param int $lessonnumber
+     * @return string
+     */
+    public static function teacher_notes(string $planjson, int $lessonnumber): string {
+        $plan = json_decode($planjson, true);
+        if (!is_array($plan)) {
+            return '';
+        }
+        $notes = [];
+        $all = trim(clean_param((string)($plan['teacherNotes'] ?? ''), PARAM_TEXT));
+        if ($all !== '') {
+            $notes[] = $all;
+        }
+        foreach ((array)($plan['lessons'] ?? []) as $lesson) {
+            if (is_array($lesson) && (int)($lesson['number'] ?? 0) === $lessonnumber) {
+                $mine = trim(clean_param((string)($lesson['notes'] ?? ''), PARAM_TEXT));
+                if ($mine !== '') {
+                    $notes[] = 'For this lesson: ' . $mine;
+                }
+            }
+        }
+        return \core_text::substr(implode("\n", $notes), 0, 4000);
     }
 }

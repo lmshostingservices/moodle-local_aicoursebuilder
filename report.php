@@ -29,13 +29,20 @@ require_once(__DIR__ . '/../../config.php');
 require_login();
 $id = required_param('id', PARAM_INT);
 $context = context_system::instance();
-require_capability('local/aicoursebuilder:create', $context);
+\local_aicoursebuilder\local\ui::require_builder();
 $PAGE->set_context($context);
 $PAGE->set_url(new moodle_url('/local/aicoursebuilder/report.php', ['id' => $id]));
 $program = $DB->get_record('local_aicoursebuilder_program', ['id' => $id, 'userid' => $USER->id], '*', MUST_EXIST);
 $jobs = $DB->get_records('local_aicoursebuilder_job', ['programid' => $id], 'id ASC');
 $units = $DB->get_records('local_aicoursebuilder_unit', ['programid' => $id], 'unitnumber ASC');
 $lessons = $DB->get_records('local_aicoursebuilder_lesson', ['programid' => $id], 'lessonnumber ASC');
+// Each course numbers its lessons from 1, as its sections do.
+$lessonpos = [];
+$unitcount = [];
+foreach ($lessons as $l) {
+    $unitcount[$l->unitid] = ($unitcount[$l->unitid] ?? 0) + 1;
+    $lessonpos[$l->id] = $unitcount[$l->unitid];
+}
 $outcomes = $DB->get_records('local_aicoursebuilder_outcome', ['programid' => $id], 'sortorder ASC');
 
 $counts = ['complete' => 0, 'active' => 0, 'waiting' => 0, 'attention' => 0, 'total' => count($jobs)];
@@ -164,7 +171,7 @@ foreach ($units as $unit) {
             $tiles .= $tile($job);
         }
         echo html_writer::div(
-            html_writer::span($lesson->lessonnumber, 'aicb-lesson-num') .
+            html_writer::span($lessonpos[$lesson->id], 'aicb-lesson-num') .
             html_writer::div(
                 html_writer::div(format_string($lesson->title), 'aicb-lesson-name') .
                 html_writer::div($tiles, 'aicb-tiles'),
@@ -201,10 +208,10 @@ if ($outcomes) {
             if (!in_array($identifier, $lessonoutcomes, true)) {
                 continue;
             }
-            $taught[] = $str('lessonn', $lesson->lessonnumber);
+            $taught[] = (count($unitcount) > 1 ? $str('unitn', (int)($units[$lesson->unitid]->unitnumber ?? 0)) . ' · ' : '') . $str('lessonn', $lessonpos[$lesson->id]);
             foreach ($jobsbylesson[$lesson->id] ?? [] as $job) {
                 if ($job->component === 'mod_aiknowledgecheck' && $job->status === 'complete') {
-                    $assessed[] = ui::tool_name('mod_aiknowledgecheck') . ' ' . $lesson->lessonnumber;
+                    $assessed[] = ui::tool_name('mod_aiknowledgecheck') . ' ' . $lessonpos[$lesson->id];
                 }
             }
         }

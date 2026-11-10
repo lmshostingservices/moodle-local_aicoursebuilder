@@ -29,7 +29,7 @@ $jobid = required_param('jobid', PARAM_INT);
 $context = context_system::instance();
 $PAGE->set_url(new moodle_url('/local/aicoursebuilder/retry.php', ['jobid' => $jobid]));
 $PAGE->set_context($context);
-require_capability('local/aicoursebuilder:create', $context);
+\local_aicoursebuilder\local\ui::require_builder();
 require_sesskey();
 
 $job = $DB->get_record('local_aicoursebuilder_job', ['id' => $jobid], '*', MUST_EXIST);

@@ -28,7 +28,7 @@ require_once(__DIR__ . '/../../config.php');
 
 require_login();
 $context = context_system::instance();
-require_capability('local/aicoursebuilder:create', $context);
+\local_aicoursebuilder\local\ui::require_builder();
 
 ui::setup_page(new moodle_url('/local/aicoursebuilder/wizard.php'), get_string('newprogram', 'local_aicoursebuilder'));
 $PAGE->navbar->add(get_string('newprogram', 'local_aicoursebuilder'));
@@ -164,6 +164,26 @@ echo html_writer::div(
 );
 echo $field('totallearnerhours', $str('totallearnerhours'), $number('totallearnerhours', '', 1, 2000, '0.5'), '', 'col-md-3');
 echo html_writer::end_div();
+// When the courses start, and which course format they use.
+$formats = [];
+foreach (\core_plugin_manager::instance()->get_enabled_plugins('format') ?: [] as $format) {
+    if (in_array($format, ['singleactivity', 'social'], true)) {
+        continue;
+    }
+    $formats[$format] = get_string('pluginname', 'format_' . $format);
+}
+// The LMS Labs theme can make every course use AI Course Format; then that is the only choice.
+if (isset($formats['aicourse']) && class_exists('\\theme_lmslabs\\local\\aiformat')
+        && method_exists('\\theme_lmslabs\\local\\aiformat', 'enabled') && \theme_lmslabs\local\aiformat::enabled()) {
+    $formats = ['aicourse' => $formats['aicourse']];
+}
+$defaultformat = isset($formats['aicourse']) ? 'aicourse' : (string)get_config('moodlecourse', 'format');
+echo html_writer::start_div('row');
+echo $field('startdate', $str('coursestart'), html_writer::empty_tag('input', ['type' => 'date', 'id' => 'id_startdate',
+    'name' => 'startdate', 'class' => 'form-control', 'value' => userdate(time(), '%Y-%m-%d', 99, false)]), '', 'col-md-3');
+echo $field('courseformat', $str('courseformat'), html_writer::select($formats, 'courseformat', $defaultformat, false,
+    ['id' => 'id_courseformat', 'class' => 'custom-select form-select']), '', 'col-md-4');
+echo html_writer::end_div();
 echo html_writer::div(
     html_writer::div('', 'aicb-pace-value', ['data-aicb' => 'lessons']) .
     html_writer::div($str('lessonsfromtime'), 'aicb-pace-note'),
@@ -177,22 +197,41 @@ echo html_writer::start_tag('section', ['class' => 'aicb-card aicb-step', 'data-
 echo html_writer::tag('h3', $str('step4'), ['class' => 'aicb-card-title']);
 echo html_writer::tag('p', $str('step4desc'), ['class' => 'aicb-card-lead']);
 echo html_writer::start_div('aicb-tools');
+// The teacher's last choice: "component:mode" pairs (older values hold only the component).
+$favourites = [];
+foreach (array_filter(explode(',', (string)get_user_preferences('local_aicoursebuilder_tools', ''))) as $pair) {
+    [$favcomponent, $favmode] = array_pad(explode(':', $pair, 2), 2, '');
+    $favourites[$favcomponent] = in_array($favmode, ['always', 'auto'], true) ? $favmode : '';
+}
 foreach (ui::LESSON_TOOLS as $component) {
     $installed = ui::tool_installed($component);
-    $notready = $installed ? \local_aicoursebuilder\local\generator_runtime::component_ready($component) : null;
-    $badge = in_array($component, ui::TAGGED_TOOLS, true)
-        ? html_writer::span($str('taggedonly'), 'aicb-chip aicb-chip-info')
-        : ($component === 'mod_visuallearning' ? html_writer::span($str('default'), 'aicb-chip aicb-chip-done') : '');
+    $hasadapter = $installed && \local_aicoursebuilder\local\generator_runtime::component_available($component);
+    $notready = $hasadapter ? \local_aicoursebuilder\local\generator_runtime::component_ready($component) : null;
+    if ($installed && !$hasadapter) {
+        $notready = get_string('needsupdatehelp', 'local_aicoursebuilder');
+    }
+    $badge = '';
     if (!$installed) {
         $badge = html_writer::span($str('notinstalled'), 'aicb-chip aicb-chip-muted');
+    } else if (!$hasadapter) {
+        $badge = html_writer::span($str('needsupdate'), 'aicb-chip aicb-chip-muted', ['title' => $notready]);
     } else if ($notready !== null) {
         $badge = html_writer::span($str('needssetup'), 'aicb-chip aicb-chip-muted', ['title' => $notready]);
     }
     $usable = $installed && $notready === null;
     $input = html_writer::empty_tag('input', array_filter([
         'type' => 'checkbox', 'name' => 'tools[]', 'value' => $component, 'class' => 'aicb-tool-check',
-        'checked' => $usable ? 'checked' : null, 'disabled' => $usable ? null : 'disabled',
+        'checked' => $usable && (!$favourites || isset($favourites[$component])) ? 'checked' : null,
+        'disabled' => $usable ? null : 'disabled',
     ]));
+    $mode = !empty($favourites[$component]) ? $favourites[$component] : ui::default_tool_mode($component);
+    $modeselect = $usable ? html_writer::select(
+        ['always' => $str('mode_always'), 'auto' => $str('mode_auto')],
+        'toolmode[' . $component . ']',
+        $mode,
+        false,
+        ['class' => 'custom-select form-select aicb-tool-mode', 'aria-label' => $str('howoften', ui::tool_name($component))]
+    ) : '';
     echo html_writer::tag(
         'label',
         $input .
@@ -200,28 +239,13 @@ foreach (ui::LESSON_TOOLS as $component) {
             ui::tool_icon($component) .
             html_writer::div(
                 html_writer::div(s(ui::tool_name($component)) . ' ' . $badge, 'aicb-tool-name') .
-                html_writer::div(s($notready ?? ui::tool_description($component)), 'aicb-tool-desc'),
+                html_writer::div(s($notready ?? ui::tool_description($component)), 'aicb-tool-desc') . $modeselect,
                 'aicb-tool-text'
             ),
             'aicb-tool-body'
         ),
         ['class' => 'aicb-tool' . ($usable ? '' : ' is-disabled')]
     );
-}
-echo html_writer::end_div();
-echo html_writer::start_div('row mt-2');
-foreach (['softskills' => 'softskillsmode', 'scenarios' => 'scenariosmode'] as $name => $label) {
-    $radios = '';
-    foreach (['auto', 'always', 'never'] as $value) {
-        $id = 'id_' . $name . '_' . $value;
-        $radios .= html_writer::div(
-            html_writer::empty_tag('input', array_filter(['type' => 'radio', 'class' => 'form-check-input', 'id' => $id,
-                'name' => $name, 'value' => $value, 'checked' => $value === 'auto' ? 'checked' : null])) .
-            html_writer::tag('label', $str('mode_' . $value), ['class' => 'form-check-label', 'for' => $id]),
-            'form-check form-check-inline'
-        );
-    }
-    echo html_writer::div(html_writer::tag('div', $str($label), ['class' => 'aicb-label mb-1']) . $radios, 'col-md-6 mb-2');
 }
 echo html_writer::end_div();
 echo html_writer::end_tag('section');

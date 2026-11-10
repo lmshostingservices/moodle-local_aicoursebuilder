@@ -29,12 +29,24 @@ require_once(__DIR__ . '/../../config.php');
 require_login();
 $id = required_param('id', PARAM_INT);
 $context = context_system::instance();
-require_capability('local/aicoursebuilder:create', $context);
+\local_aicoursebuilder\local\ui::require_builder();
 $PAGE->set_context($context);
 $PAGE->set_url(new moodle_url('/local/aicoursebuilder/review.php', ['id' => $id]));
 $program = $DB->get_record('local_aicoursebuilder_program', ['id' => $id, 'userid' => $USER->id], '*', MUST_EXIST);
 if ($program->status !== 'planned') {
     redirect(new moodle_url('/local/aicoursebuilder/report.php', ['id' => $id]));
+}
+// Save the teacher's edits (lessons added or removed, outcomes moved, notes) without approving.
+if (optional_param('aicbaction', '', PARAM_ALPHA) === 'save') {
+    require_sesskey();
+    $rawplan = required_param('planjson', PARAM_RAW); // pipeline-ignore: PARAM_RAW — JSON is decoded and checked before use.
+    $edited = json_decode($rawplan, true);
+    if (!is_array($edited) || empty($edited['outcomes']) || empty($edited['units']) || empty($edited['lessons'])) {
+        throw new moodle_exception('invalidplan', 'local_aicoursebuilder');
+    }
+    \local_aicoursebuilder\local\course_builder::save_draft($id, (int)$USER->id, $edited);
+    $anchor = optional_param('anchor', '', PARAM_ALPHANUMEXT);
+    redirect(new moodle_url('/local/aicoursebuilder/review.php', ['id' => $id], $anchor !== '' ? $anchor : null));
 }
 $framework = $DB->get_record('local_aicoursebuilder_framework', ['programid' => $id]);
 $delivery = json_decode($program->deliveryjson, true) ?: [];
@@ -80,6 +92,10 @@ $hours = round(count($lessons) * $minutes / 60, 1);
 
 echo $OUTPUT->header();
 echo html_writer::start_div('aicb aicb-review', [
+    'data-strings' => json_encode([
+        'time' => $str('lessontime'),
+        'short' => $str('lessontimeshort'),
+    ]),
     'data-courselevel' => json_encode($courselevel),
     'data-units' => count($units),
 ]);
@@ -91,6 +107,29 @@ echo html_writer::start_div('aicb-review-head');
 echo html_writer::div(implode('', array_map(static fn($m) => html_writer::span(s($m), 'aicb-chip aicb-chip-meta'), $meta)) .
     ui::status_chip($program->status), 'aicb-review-meta');
 echo html_writer::tag('p', $str('reviewintro'), ['class' => 'aicb-card-lead']);
+// What the builder repaired in the service's plan, so the teacher can check it.
+$repairs = (array)($plan['repairs'] ?? []);
+$notes = [];
+foreach (['restored', 'codes', 'wording', 'titles', 'contentcreator'] as $key) {
+    if (!empty($repairs[$key])) {
+        $notes[] = $str('repair_' . $key);
+    }
+}
+if (!empty($repairs['added']) && is_array($repairs['added'])) {
+    $added = array_map(static function ($a) use ($outcomebykey, $str) {
+        $o = $outcomebykey[$a['outcome'] ?? ''] ?? null;
+        $label = $o ? (!empty($o['code']) ? $o['code'] : 'O' . $o['index']) : (string)($a['outcome'] ?? '');
+        return $str('repair_addedone', (object)['outcome' => $label, 'lesson' => (int)($a['lesson'] ?? 0)]);
+    }, $repairs['added']);
+    $notes[] = $str('repair_added', implode(', ', $added));
+}
+if ($notes) {
+    echo html_writer::div(
+        html_writer::tag('strong', $str('repairstitle')) .
+        html_writer::alist(array_map('s', $notes), ['class' => 'mb-0 mt-1']),
+        'alert alert-info aicb-repairs'
+    );
+}
 echo html_writer::start_div('aicb-stats');
 echo ui::stat((string)count($units), $str('courses'));
 echo ui::stat((string)count($lessons), $str('lessons'));
@@ -104,9 +143,17 @@ echo html_writer::start_tag('form', ['method' => 'post', 'action' => new moodle_
     'id' => 'aicb-review-form']);
 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $id]);
 echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'aicbaction', 'value' => '', 'data-aicb' => 'action']);
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'anchor', 'value' => '', 'data-aicb' => 'anchor']);
 
 echo html_writer::start_div('aicb-review-grid');
 echo html_writer::start_div('aicb-review-main');
+echo html_writer::start_tag('section', ['class' => 'aicb-card aicb-notes-card']);
+echo html_writer::tag('h3', $str('teachernotes'), ['class' => 'aicb-card-title']);
+echo html_writer::tag('p', $str('teachernotesdesc'), ['class' => 'aicb-card-lead']);
+echo html_writer::tag('textarea', s((string)($plan['teacherNotes'] ?? '')), ['class' => 'form-control', 'rows' => 3,
+    'data-plan-notes' => 1, 'maxlength' => 2000, 'placeholder' => $str('teachernotesph'), 'aria-label' => $str('teachernotes')]);
+echo html_writer::end_tag('section');
 
 foreach ($units as $uindex => $unit) {
     $unitnumber = (int)($unit['number'] ?? ($uindex + 1));
@@ -119,7 +166,8 @@ foreach ($units as $uindex => $unit) {
             'value' => (string)($unit['title'] ?? ''), 'aria-label' => $str('unitn', $unitnumber), 'data-unit-title' => $uindex]),
         'aicb-unit-titlewrap'
     );
-    echo html_writer::div($str('lessonscount', count($unit['lessons'] ?? [])), 'aicb-unit-count');
+    $lessoncount = count($unit['lessons'] ?? []);
+    echo html_writer::div($lessoncount === 1 ? $str('lessonscount_one') : $str('lessonscount', $lessoncount), 'aicb-unit-count');
     echo html_writer::end_div();
     echo html_writer::div(
         ui::tool_icon('mod_courseinfo', 'aicb-toolicon aicb-toolicon-sm') . html_writer::span(s(ui::tool_name('mod_courseinfo'))) .
@@ -136,7 +184,7 @@ foreach ($units as $uindex => $unit) {
         }
         $number = (int)$lesson['number'];
         $selected = $lesson['tools'] ?? [];
-        echo html_writer::start_div('aicb-lesson', ['data-lesson' => $lindex]);
+        echo html_writer::start_div('aicb-lesson', ['data-lesson' => $lindex, 'id' => 'lesson-' . $number]);
         echo html_writer::span($number, 'aicb-lesson-num');
         echo html_writer::start_div('aicb-lesson-body');
         echo html_writer::empty_tag('input', ['type' => 'text', 'class' => 'form-control aicb-inline-input aicb-lesson-title',
@@ -145,16 +193,34 @@ foreach ($units as $uindex => $unit) {
         foreach ($lesson['outcomes'] ?? [] as $key) {
             $o = $outcomebykey[$key] ?? null;
             $label = $o ? (!empty($o['code']) ? $o['code'] : 'O' . $o['index']) : $key;
-            $chips .= html_writer::span(s($label), 'aicb-chip aicb-chip-outcome', ['title' => s($o['text'] ?? $key)]);
+            $chips .= html_writer::span(
+                s($label) . html_writer::tag('button', '×', ['type' => 'button', 'class' => 'aicb-chip-x',
+                    'data-remove-outcome' => $key, 'title' => $str('removeoutcomefromlesson'),
+                    'aria-label' => $str('removeoutcomefromlesson') . ': ' . $label]),
+                'aicb-chip aicb-chip-outcome',
+                ['title' => s($o['text'] ?? $key)]
+            );
+        }
+        $options = ['' => $str('addoutcometolesson')];
+        foreach ($outcomebykey as $key => $o) {
+            if (!in_array($key, $lesson['outcomes'] ?? [], true)) {
+                $code = !empty($o['code']) ? $o['code'] : 'O' . $o['index'];
+                $options[$key] = $code . ' – ' . shorten_text((string)($o['text'] ?? ''), 70);
+            }
+        }
+        if (count($options) > 1) {
+            $chips .= html_writer::select($options, 'addoutcome' . $number, '', false,
+                ['class' => 'custom-select form-select aicb-add-outcome', 'data-add-outcome' => 1,
+                'aria-label' => $str('addoutcometolesson')]);
         }
         echo html_writer::div($chips, 'aicb-lesson-outcomes');
         $pills = '';
         foreach (ui::LESSON_TOOLS as $component) {
             $on = in_array($component, $selected, true);
-            if (!$on && in_array($component, ui::TAGGED_TOOLS, true)) {
-                continue;
-            }
-            if (!$on && !ui::tool_installed($component)) {
+            // Only offer tools this site can build now, so a pill can never block the approval.
+            if (!$on && (!ui::tool_installed($component)
+                    || !\local_aicoursebuilder\local\generator_runtime::component_available($component)
+                    || \local_aicoursebuilder\local\generator_runtime::component_ready($component) !== null)) {
                 continue;
             }
             $price = $prices[$number][$component];
@@ -162,6 +228,7 @@ foreach ($units as $uindex => $unit) {
                 'label',
                 html_writer::empty_tag('input', array_filter(['type' => 'checkbox', 'class' => 'aicb-pill-check',
                     'data-tool' => $component, 'data-price' => $price === null ? '' : $price,
+                    'data-minutes' => ui::tool_minutes($component),
                     'checked' => $on ? 'checked' : null])) .
                 ui::tool_icon($component, 'aicb-toolicon aicb-toolicon-xs') .
                 html_writer::span(s(ui::tool_name($component))),
@@ -169,9 +236,24 @@ foreach ($units as $uindex => $unit) {
             );
         }
         echo html_writer::div($pills, 'aicb-lesson-tools');
+        echo html_writer::div('', 'aicb-lesson-time', ['data-lesson-time' => $minutes]);
+        $lessonnotes = (string)($lesson['notes'] ?? '');
+        $extras = html_writer::tag('details',
+            html_writer::tag('summary', $str('lessonnotes') . ($lessonnotes !== '' ? ' ✓' : '')) .
+            html_writer::tag('textarea', s($lessonnotes), ['class' => 'form-control mt-1', 'rows' => 2, 'maxlength' => 1000,
+                'data-lesson-notes' => 1, 'placeholder' => $str('lessonnotesph'), 'aria-label' => $str('lessonnotes')]),
+            array_filter(['class' => 'aicb-lesson-notes', 'open' => $lessonnotes !== '' ? 'open' : null]));
+        if (count($unit['lessons'] ?? []) > 1) {
+            $extras .= html_writer::tag('button', $str('removelesson'), ['type' => 'button',
+                'class' => 'btn btn-link btn-sm aicb-remove-lesson', 'data-remove-lesson' => $number]);
+        }
+        echo html_writer::div($extras, 'aicb-lesson-extras');
         echo html_writer::end_div();
         echo html_writer::end_div();
     }
+    echo html_writer::div(html_writer::tag('button', '+ ' . $str('addlesson'), ['type' => 'button',
+        'class' => 'btn btn-outline-secondary btn-sm', 'data-add-lesson' => $uindex,
+        'data-new-title' => $str('newlessontitle')]), 'aicb-unit-actions');
     echo html_writer::end_tag('section');
 }
 
@@ -206,13 +288,25 @@ foreach ($outcomes as $index => $outcome) {
     foreach ($outcome['tags'] ?? [] as $tag) {
         $tags .= html_writer::span(s($tag), 'aicb-chip aicb-chip-info');
     }
+    $okey = !empty($outcome['code']) ? (string)$outcome['code'] : (string)($outcome['text'] ?? '');
+    $remove = count($outcomes) > 1 ? html_writer::tag('button', '×', ['type' => 'button', 'class' => 'aicb-chip-x aicb-outcome-x',
+        'data-delete-outcome' => $okey, 'title' => $str('deleteoutcome'), 'aria-label' => $str('deleteoutcome')]) : '';
     echo html_writer::tag(
         'li',
         html_writer::span(s(!empty($outcome['code']) ? $outcome['code'] : 'O' . ($index + 1)), 'aicb-chip aicb-chip-outcome') .
-        html_writer::span(s($outcome['text'] ?? ''), 'aicb-outcome-text') . $tags
+        html_writer::span(s($outcome['text'] ?? ''), 'aicb-outcome-text') . $tags . $remove
     );
 }
 echo html_writer::end_tag('ol');
+echo html_writer::div(
+    html_writer::empty_tag('input', ['type' => 'text', 'class' => 'form-control aicb-new-code', 'maxlength' => 50,
+        'placeholder' => $str('newoutcomecode'), 'aria-label' => $str('newoutcomecode'), 'data-new-outcome-code' => 1]) .
+    html_writer::empty_tag('input', ['type' => 'text', 'class' => 'form-control', 'maxlength' => 500,
+        'placeholder' => $str('newoutcometext'), 'aria-label' => $str('newoutcometext'), 'data-new-outcome-text' => 1]) .
+    html_writer::tag('button', $str('addoutcome'), ['type' => 'button', 'class' => 'btn btn-outline-secondary',
+        'data-add-outcome-new' => 1]),
+    'aicb-new-outcome'
+);
 echo html_writer::end_tag('section');
 
 echo html_writer::tag(
@@ -251,9 +345,28 @@ echo html_writer::tag('tfoot', html_writer::tag(
     html_writer::tag('th', '0', ['class' => 'num', 'data-aicb' => 'total-credits'])
 ));
 echo html_writer::end_tag('table');
+// Where the courses will be created.
+$targets = [];
+$sysctx = context_system::instance();
+if (has_capability('moodle/course:create', $sysctx) && has_capability('moodle/category:manage', $sysctx)) {
+    $targets[0] = $str('newtopcategory');
+}
+$targets += ui::target_categories();
+if ($targets) {
+    echo html_writer::div(
+        html_writer::label($str('createin'), 'id_parentcategory', true, ['class' => 'aicb-label']) .
+        html_writer::select($targets, 'parentcategory', array_key_first($targets), false,
+            ['id' => 'id_parentcategory', 'class' => 'custom-select form-select w-100']),
+        'aicb-target mb-2'
+    );
+} else {
+    echo html_writer::div($str('nocategory'), 'alert alert-warning');
+}
 echo html_writer::tag('p', $str('approvenote'), ['class' => 'aicb-estimate-note']);
-echo html_writer::tag('button', $str('approvebuild'), ['type' => 'submit', 'class' => 'btn btn-primary btn-lg w-100 aicb-btn-main',
-    'data-aicb' => 'approve']);
+echo html_writer::tag('button', $str('approvebuild'), array_filter(['type' => 'submit',
+    'class' => 'btn btn-primary btn-lg w-100 aicb-btn-main', 'data-aicb' => 'approve', 'disabled' => $targets ? null : 'disabled']));
+echo html_writer::tag('button', $str('savechanges'), ['type' => 'button', 'class' => 'btn btn-outline-secondary w-100 mt-2',
+    'data-aicb' => 'save']);
 echo html_writer::tag('p', $str('planningnote'), ['class' => 'aicb-estimate-free']);
 echo html_writer::end_tag('aside');
 

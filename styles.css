@@ -712,3 +712,116 @@
         position: static;
     }
 }
+
+/* Teacher editing on the review page. */
+.aicb-chip-x {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0 0 0 .35rem;
+    cursor: pointer;
+    opacity: .7;
+}
+.aicb-chip-x:hover,
+.aicb-chip-x:focus {
+    opacity: 1;
+}
+.aicb-outcome-x {
+    color: var(--aicb-muted);
+    margin-left: .25rem;
+}
+.aicb-add-outcome {
+    display: inline-block;
+    width: auto;
+    max-width: 100%;
+    font-size: .8rem;
+    padding-top: .1rem;
+    padding-bottom: .1rem;
+    margin-left: .25rem;
+    vertical-align: middle;
+}
+.aicb-lesson-outcomes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .3rem;
+}
+.aicb-lesson-extras {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: .5rem;
+    margin-top: .45rem;
+}
+.aicb-lesson-notes {
+    flex: 1 1 320px;
+    min-width: 0;
+}
+.aicb-lesson-notes summary {
+    font-size: .85rem;
+    font-weight: 600;
+    color: var(--aicb-muted);
+    cursor: pointer;
+}
+.aicb-remove-lesson {
+    color: var(--aicb-muted);
+}
+.aicb-unit-actions {
+    padding-top: .6rem;
+    border-top: 1px solid var(--aicb-line);
+}
+.aicb-new-outcome {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-top: .75rem;
+}
+.aicb-new-outcome .form-control {
+    flex: 1 1 260px;
+    min-width: 0;
+}
+.aicb-new-outcome .aicb-new-code {
+    flex: 0 1 150px;
+}
+.aicb-shake {
+    animation: aicb-shake .4s;
+}
+@keyframes aicb-shake {
+    25% {
+        transform: translateX(-3px);
+    }
+    75% {
+        transform: translateX(3px);
+    }
+}
+.aicb-review .aicb-add-outcome,
+.aicb-review select.aicb-add-outcome.custom-select,
+.aicb-review select.aicb-add-outcome.form-select {
+    width: auto;
+    max-width: min(100%, 22rem);
+}
+.aicb-tool-mode,
+select.aicb-tool-mode.custom-select,
+select.aicb-tool-mode.form-select {
+    width: auto;
+    max-width: 100%;
+    margin-top: .45rem;
+    font-size: .82rem;
+    padding-top: .15rem;
+    padding-bottom: .15rem;
+}
+.aicb-tool-check:not(:checked) + .aicb-tool-body .aicb-tool-mode {
+    opacity: .45;
+}
+.aicb-lesson-time {
+    font-size: .8rem;
+    color: var(--aicb-muted);
+    margin-top: .35rem;
+}
+.aicb-lesson-time.is-short {
+    color: var(--aicb-attention);
+    font-weight: 600;
+}

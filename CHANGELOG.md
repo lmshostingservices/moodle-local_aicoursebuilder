@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.2 (2026-11-10)
+More control for the teacher, courses for every sector, and a safe fallback for older activity plugins.
+- Fix: an activity plugin that is installed but has no AI Course Builder support yet (for example Knowledge Check 1.6.0) shows "Needs update" and stays unticked. Before this, the teacher could pick it and saving the plan failed with "plugin adapters are not ready".
+- New: on the review page the teacher can add or remove lessons, add or remove an outcome on any lesson, add their own learning outcomes and delete ones they don't want, and save changes before approving. No more editing the plan as JSON.
+- New: "Your instructions for the AI" (for the whole build) and "Instructions for this lesson". Every activity receives them.
+- New: any activity can be added to any lesson, including Soft Skills, Branched Scenario, Safety Hazards and Anatomy, which were only offered on lessons with a tagged outcome.
+- New: the wizard remembers each teacher's chosen activities and ticks them next time.
+- New: the teacher picks the date the courses start and the course format (AI Course Format, Topics, Weeks or any enabled format). Before this, courses always started on the day of approval in AI Course Format.
+- New: each activity can go "In every lesson" or "Where it fits". Before this, an activity the teacher ticked, such as Slide Flow, was only used if the planner chose it.
+- New: sectors for College / further education, Professional development (CPD), Short course and Community / general interest, with matching levels, plus more countries. The sector, level and framework are free to type for anything else.
+- Fix: activity plugins now receive the course's framework, so Learning Activities uses its general route for school, university, workplace and short courses instead of always the VET route.
+- A lesson always keeps at least one activity.
+- Fix (critical): approving a plan with more than one course failed with a database error, because the second course's sections were numbered after the first course's lessons. Each course now numbers its lessons from 1.
+- New: teachers with a category-level course creator role can build. They choose the category the courses go in; a new private category is made only where they may manage categories. The program's own category is now hidden.
+- New: the plan is checked against the teacher's curriculum before review. Outcome codes (performance criteria, content descriptions, LO numbers) and the teacher's own wording are kept; coded outcomes replaced by topic names are restored; any outcome the plan left out is added to a lesson; lesson titles cut off with "…" are completed; and the course takes the name the teacher typed. The review page lists every change.
+- New: a long sample adds Content Creator only to the lessons it matches, unless the teacher chose it for every lesson.
+- New: lesson cards in AI Course Format get a picture from the lesson's generated content. A card image the teacher set is never replaced.
+- New: each lesson on the review page shows its activity time against the session length, with a hint when it is less than half.
+- New: AI Anatomy shows "Needs setup" when the site's last check says it is locked.
+- Fix: an error inside Moodle before anything is sent to LMS Labs is reported as "nothing was sent and no credits were used", not as "uncertain".
+- Fix: the build report numbers lessons per course, as the courses do.
+
 ## 1.0.1 (2026-11-10)
 Quality release from a full test build on Moodle 5.3 with every activity type, plus regression on 4.5 and 5.2.
 - Fix: approving a plan no longer fails when an Anatomy lesson names no single body part; that lesson uses Visual Learning instead.
