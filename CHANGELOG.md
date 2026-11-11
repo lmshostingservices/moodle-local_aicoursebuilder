@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.4 (2026-11-11)
+- Fix: Visual Learning, Slide Flow and Learning Activities used Australian English narration and Australian pictures for every course. They now follow the course: Australia, the UK, the US and India use their own English, and their pictures reflect that country. Other countries get English in the chosen spelling with neutral, international pictures.
+
 ## 1.0.3 (2026-11-10)
 - Fix: the build now never charges more than the price the teacher approved. Each activity remembers its approved price. If the plugin's price has gone up since approval, nothing is charged and the activity says so; "Try again" builds it at the new price.
 - New: every activity is told how long the lesson's session is (or, for self-paced courses, the learner hours shared across the lessons), so tools can size their activities. The review page prices activities for that session length.

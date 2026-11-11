@@ -602,6 +602,24 @@ final class course_builder {
     }
 
     /**
+     * The English locale for narration and spelling, and whether that locale's country is the
+     * course's own (so pictures can reflect it). Other countries get neutral, international pictures.
+     *
+     * @param \stdClass|null $framework
+     * @return array [locale, is the course's own country]
+     */
+    public static function locale_for(?\stdClass $framework): array {
+        $country = \core_text::strtolower(trim((string)($framework->country ?? '')));
+        $spelling = \core_text::strtolower(trim((string)($framework->spelling ?? '')));
+        $bycountry = ['australia' => 'en-AU', 'united kingdom' => 'en-GB', 'united states' => 'en-US', 'india' => 'en-IN'];
+        if (isset($bycountry[$country])) {
+            return [$bycountry[$country], true];
+        }
+        $locale = str_contains($spelling, 'american') ? 'en-US' : (str_contains($spelling, 'australian') ? 'en-AU' : 'en-GB');
+        return [$locale, false];
+    }
+
+    /**
      * Minutes in one lesson's session: the planned session length, or for self-paced
      * courses the planned learner hours shared across the lessons (60 when unknown).
      *
@@ -1128,21 +1146,27 @@ final class course_builder {
             }
         }
         if ($lesson) {
+            // Narration accent and the place the pictures reflect follow the course, not Australia.
+            [$locale, $local] = self::locale_for($framework);
             if ($modulename === 'visuallearning') {
                 $info->sourcecontent = $description;
                 $info->objectives = $description;
+                $info->language = $locale;
+                $info->imageculture = $local ? 'language' : 'international';
                 $level = strtolower((string)($framework->level ?? ''));
                 $info->learnerlevel = str_contains($level, 'primary') ? 'primary'
                     : (str_contains($level, 'secondary') ? 'secondary' : 'adult');
             } else if ($modulename === 'aiactivities') {
                 $info->content = $description;
                 $info->activitycount = 5;
-                $info->language = 'en-AU';
+                $info->language = $locale;
                 $info->voiceoverenabled = 0;
             } else if ($modulename === 'aiknowledgecheck') {
                 $info->sourcecontext = json_encode(['topics' => $description, 'outcomes' => $outcomes], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
                 $info->voiceoverenabled = 0;
                 $info->questioncount = 0;
+            } else if ($modulename === 'productexplainer') {
+                $info->voicelanguage = $locale;
             } else if ($modulename === 'aianatomy') {
                 $info->pack = self::anatomy_pack_for($description);
             }
