@@ -187,6 +187,16 @@ class generate_activity extends \core\task\adhoc_task {
             } else {
                 // An estimate is a read-only price check. Keep the job retryable if
                 // it fails; only mark the request uncertain once generation starts.
+                // A plugin that was locked or switched off after approval: stop before anything is charged.
+                $notready = \local_aicoursebuilder\local\generator_runtime::component_ready((string)$job->component);
+                if ($notready !== null) {
+                    $job->status = 'failed';
+                    $job->error = $notready;
+                    $job->timemodified = time();
+                    $DB->update_record('local_aicoursebuilder_job', $job);
+                    $this->hide_failed_activity($job);
+                    return;
+                }
                 $price = (int)$class::estimate($brief);
                 // Never charge more than the teacher approved.
                 if ($job->approvedcredits !== null && $price > (int)$job->approvedcredits) {

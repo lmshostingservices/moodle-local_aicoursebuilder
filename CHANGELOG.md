@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.5 (2026-11-11)
+- Fix: Soft Skills, Safety Hazards and AI Anatomy activities need the plugin to be unlocked on the site (in its settings, "Check access"). Until then learners only see "not activated", but the builder still offered these tools and paid for activities nobody could play. A locked plugin now shows "Needs setup" with how to unlock it. If a plugin becomes locked after approval, that activity stops before anything is charged.
+
 ## 1.0.4 (2026-11-11)
 - Fix: Visual Learning, Slide Flow and Learning Activities used Australian English narration and Australian pictures for every course. They now follow the course: Australia, the UK, the US and India use their own English, and their pictures reflect that country. Other countries get English in the chosen spelling with neutral, international pictures.
 

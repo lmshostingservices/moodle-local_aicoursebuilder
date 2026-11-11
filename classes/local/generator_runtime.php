@@ -61,15 +61,17 @@ final class generator_runtime {
         if (!self::component_available($component)) {
             return null;
         }
-        // AI Anatomy is unlocked once per site; when its last check says it is locked, say so
-        // up front instead of letting the build fail.
-        if ($component === 'mod_aianatomy' && class_exists('\\mod_aianatomy\\local\\unlock')) {
+        // Some LMS Labs plugins (AI Anatomy, Soft Skills, Safety Hazards) are unlocked once per site
+        // in their settings. Until then their activities cannot be played, so do not offer them.
+        $unlock = '\\' . $component . '\\local\\unlock';
+        if (class_exists($unlock) && (method_exists($unlock, 'active') || method_exists($unlock, 'state'))) {
             try {
-                if ((\mod_aianatomy\local\unlock::state()['status'] ?? '') === 'locked') {
-                    return get_string('anatomylocked', 'local_aicoursebuilder');
+                $locked = method_exists($unlock, 'active') ? !$unlock::active()
+                    : (($unlock::state()['status'] ?? '') === 'locked');
+                if ($locked) {
+                    return get_string('needsunlock', 'local_aicoursebuilder', ui::tool_name($component));
                 }
             } catch (\Throwable $e) {
-                // Unknown state: let the build report any refusal plainly.
                 unset($e);
             }
         }
