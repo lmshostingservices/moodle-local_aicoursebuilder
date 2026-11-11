@@ -19,7 +19,7 @@
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace local_aicoursebuilder\local;
@@ -193,6 +193,8 @@ final class ui {
     public static function status_chip(string $status): string {
         $known = ['draft', 'planned', 'building', 'complete', 'failed', 'blocked', 'queued', 'generating', 'polling',
             'waiting', 'retry'];
+        // A job that is running at LMS Labs is "Creating", like one being started.
+        $status = $status === 'running' ? 'generating' : $status;
         $key = in_array($status, $known, true) ? $status : 'other';
         $label = get_string_manager()->string_exists('status_' . $key, 'local_aicoursebuilder')
             ? get_string('status_' . $key, 'local_aicoursebuilder')

@@ -16,13 +16,11 @@
 
 namespace local_aicoursebuilder\task;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Runs one plugin-owned generation adapter with bounded retries.
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class generate_activity extends \core\task\adhoc_task {
     /** @var int Longest one generation attempt may run before it is treated as failed. */
@@ -48,6 +46,17 @@ class generate_activity extends \core\task\adhoc_task {
         if (!$job->cmid) {
             $job->status = 'blocked';
             $job->error = 'No native Moodle activity instance is attached to this generation job.';
+            $job->timemodified = time();
+            $DB->update_record('local_aicoursebuilder_job', $job);
+            return;
+        }
+        // The teacher deleted the activity (or its course) before it was generated: stop for good.
+        if (
+            !$DB->record_exists_sql("SELECT 1 FROM {course_modules} cm JOIN {course} c ON c.id = cm.course
+                WHERE cm.id = ? AND cm.deletioninprogress = 0", [(int)$job->cmid])
+        ) {
+            $job->status = 'failed';
+            $job->error = get_string('activitydeleted', 'local_aicoursebuilder');
             $job->timemodified = time();
             $DB->update_record('local_aicoursebuilder_job', $job);
             return;
@@ -201,8 +210,11 @@ class generate_activity extends \core\task\adhoc_task {
                 // Never charge more than the teacher approved.
                 if ($job->approvedcredits !== null && $price > (int)$job->approvedcredits) {
                     $job->status = 'failed';
-                    $job->error = '[pricechanged] ' . get_string('pricechanged', 'local_aicoursebuilder',
-                        (object)['approved' => (int)$job->approvedcredits, 'now' => $price]);
+                    $job->error = '[pricechanged] ' . get_string(
+                        'pricechanged',
+                        'local_aicoursebuilder',
+                        (object)['approved' => (int)$job->approvedcredits, 'now' => $price]
+                    );
                     $job->timemodified = time();
                     $DB->update_record('local_aicoursebuilder_job', $job);
                     $this->hide_failed_activity($job);
@@ -224,8 +236,10 @@ class generate_activity extends \core\task\adhoc_task {
             $DB->update_record('local_aicoursebuilder_job', $job);
             $state = $class::status((int)$job->cmid, $externaljobid);
             $started = (int)((json_decode((string)$job->resultjson, true) ?: [])['startedat'] ?? 0);
-            if (in_array($state['status'] ?? '', ['running', 'pending'], true) && $started > 0
-                    && time() - $started > self::MAX_JOB_SECONDS) {
+            if (
+                in_array($state['status'] ?? '', ['running', 'pending'], true) && $started > 0
+                    && time() - $started > self::MAX_JOB_SECONDS
+            ) {
                 $state = ['status' => 'failed', 'retryable' => true,
                     'error' => get_string('jobtooklong', 'local_aicoursebuilder')];
             }
@@ -269,8 +283,11 @@ class generate_activity extends \core\task\adhoc_task {
                 || $error instanceof \invalid_parameter_exception
                 || $error instanceof \required_capability_exception
                 || $error instanceof \dml_exception
-                || ($error instanceof \moodle_exception && in_array($error->errorcode,
-                    ['error_no_topics', 'error_no_content', 'invalidrecord', 'invalidcoursemodule', 'invalidplan'], true));
+                || ($error instanceof \moodle_exception && in_array(
+                    $error->errorcode,
+                    ['error_no_topics', 'error_no_content', 'invalidrecord', 'invalidcoursemodule', 'invalidplan'],
+                    true
+                ));
             if ($generationstarted && $beforerequest && !$refused) {
                 $job->status = 'failed';
                 $job->error = get_string('failedbeforerequest', 'local_aicoursebuilder', $detail);
@@ -343,9 +360,11 @@ class generate_activity extends \core\task\adhoc_task {
         $DB->update_record('local_aicoursebuilder_job', $job);
         $this->hide_failed_activity($job);
         // An activity hidden after an earlier failure is shown again once it is built.
-        if ($status === 'complete' && !empty($job->cmid)
+        if (
+            $status === 'complete' && !empty($job->cmid)
                 && $DB->record_exists('course_modules', ['id' => (int)$job->cmid, 'visible' => 0])
-                && !in_array($job->component, ['mod_learningmapping'], true)) {
+                && !in_array($job->component, ['mod_learningmapping'], true)
+        ) {
             global $CFG;
             require_once($CFG->dirroot . '/course/lib.php');
             set_coursemodule_visible((int)$job->cmid, 1);
@@ -428,8 +447,10 @@ class generate_activity extends \core\task\adhoc_task {
      */
     private function hide_failed_activity(\stdClass $job): void {
         global $DB, $CFG;
-        if (empty($job->cmid) || !in_array($job->status, ['failed', 'blocked'], true)
-                || !$DB->record_exists('course_modules', ['id' => (int)$job->cmid, 'visible' => 1])) {
+        if (
+            empty($job->cmid) || !in_array($job->status, ['failed', 'blocked'], true)
+                || !$DB->record_exists('course_modules', ['id' => (int)$job->cmid, 'visible' => 1])
+        ) {
             return;
         }
         require_once($CFG->dirroot . '/course/lib.php');

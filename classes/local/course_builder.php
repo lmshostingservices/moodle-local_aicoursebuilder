@@ -16,13 +16,11 @@
 
 namespace local_aicoursebuilder\local;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Stores editable plans and creates the approved course structure.
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class course_builder {
     /**
@@ -177,9 +175,11 @@ final class course_builder {
         if (!in_array($job->component, ['mod_courseinfo', 'mod_learningmapping'], true)) {
             $lesson = $DB->get_record('local_aicoursebuilder_lesson', ['id' => $job->lessonid], 'id, unitid', MUST_EXIST);
             $first = $DB->get_records('local_aicoursebuilder_lesson', ['unitid' => $lesson->unitid], 'lessonnumber ASC', 'id', 0, 1);
-            $courselevel = $DB->get_records_select('local_aicoursebuilder_job',
+            $courselevel = $DB->get_records_select(
+                'local_aicoursebuilder_job',
                 'programid = ? AND lessonid = ? AND component IN (?, ?)',
-                [$job->programid, (int)array_key_first($first), 'mod_courseinfo', 'mod_learningmapping']);
+                [$job->programid, (int)array_key_first($first), 'mod_courseinfo', 'mod_learningmapping']
+            );
             foreach ($courselevel as $cl) {
                 $ids[] = $cl->id;
             }
@@ -271,8 +271,10 @@ final class course_builder {
                 unset($bynumber[(int)$old]);
                 $lesson['number'] = count($lessons) + 1;
                 $lesson['title'] = \core_text::substr(trim(clean_param((string)($lesson['title'] ?? ''), PARAM_TEXT)), 0, 255);
-                $lesson['outcomes'] = array_values(array_unique(array_filter(array_map('strval', (array)($lesson['outcomes'] ?? [])),
-                    static fn($k) => isset($keys[$k]))));
+                $lesson['outcomes'] = array_values(array_unique(array_filter(
+                    array_map('strval', (array)($lesson['outcomes'] ?? [])),
+                    static fn($k) => isset($keys[$k])
+                )));
                 $lesson['tools'] = array_values(array_unique(array_map('strval', (array)($lesson['tools'] ?? []))));
                 $lesson['notes'] = \core_text::substr(trim(clean_param((string)($lesson['notes'] ?? ''), PARAM_TEXT)), 0, 1000);
                 if ($lesson['notes'] === '') {
@@ -399,7 +401,9 @@ final class course_builder {
                 }
                 // The price the teacher approved for this activity. The build never charges more.
                 $approved = ui::estimate($component, $title, array_values(array_filter(array_map(
-                    static fn($key) => $outcometext[(string)$key] ?? '', (array)($lesson['outcomes'] ?? [])))), $minutes);
+                    static fn($key) => $outcometext[(string)$key] ?? '',
+                    (array)($lesson['outcomes'] ?? [])
+                ))), $minutes);
                 $DB->insert_record('local_aicoursebuilder_job', (object)[
                     'programid' => $programid,
                     'lessonid' => $lessonid,
@@ -447,7 +451,7 @@ final class course_builder {
         if (!$parentcategory || has_capability('moodle/category:manage', $parentcontext)) {
             $category = \core_course_category::create((object)[
                 'name' => $program->name,
-                'idnumber' => 'aicb-' . $programid,
+                'idnumber' => self::free_value('course_categories', 'idnumber', 'aicb-' . $programid),
                 'parent' => $parentcategory,
                 'visible' => 0,
             ]);
@@ -476,7 +480,7 @@ final class course_builder {
                 'startdate' => $coursestart,
                 'enddate' => $selfpaced ? 0 : $coursestart + $unitweeks * WEEKSECS,
                 'fullname' => sprintf('%02d · %s', $unit->unitnumber, $unit->title),
-                'shortname' => sprintf('AICB-%d-%02d', $programid, $unit->unitnumber),
+                'shortname' => self::free_value('course', 'shortname', sprintf('AICB-%d-%02d', $programid, $unit->unitnumber)),
                 'category' => $category->id,
                 'visible' => 0,
                 'format' => $courseformat,
@@ -620,6 +624,24 @@ final class course_builder {
     }
 
     /**
+     * A value not yet used in a unique column: the wanted one, or the wanted one with "-2", "-3"…
+     * (for example after the plugin was reinstalled, or courses were restored from another site).
+     *
+     * @param string $table
+     * @param string $field
+     * @param string $wanted
+     * @return string
+     */
+    private static function free_value(string $table, string $field, string $wanted): string {
+        global $DB;
+        $value = $wanted;
+        for ($n = 2; $DB->record_exists($table, [$field => $value]); $n++) {
+            $value = $wanted . '-' . $n;
+        }
+        return $value;
+    }
+
+    /**
      * Minutes in one lesson's session: the planned session length, or for self-paced
      * courses the planned learner hours shared across the lessons (60 when unknown).
      *
@@ -682,13 +704,20 @@ final class course_builder {
         foreach ($sources as $source) {
             foreach (preg_split('/\R/u', (string)($source['text'] ?? '')) as $line) {
                 $line = trim(preg_replace('/^\s*[-•*–]\s*/u', '', $line));
-                if (preg_match('/^(?:[Ee]lement\s+)?(\d{1,2})[.:)]?\s+(\p{Lu}.{5,})$/u', $line, $m)
-                        && !preg_match('/^\d+\.\d/', $line)) {
+                if (
+                    preg_match('/^(?:[Ee]lement\s+)?(\d{1,2})[.:)]?\s+(\p{Lu}.{5,})$/u', $line, $m)
+                        && !preg_match('/^\d+\.\d/', $line)
+                ) {
                     $elements[(int)$m[1]] = trim(rtrim($m[2], ':'));
                     continue;
                 }
-                if (preg_match('/^((?:[A-Z]{2,}[A-Z0-9]*\d[A-Z0-9]*)|(?:LO\s?\d{1,2})|(?:\d{1,2}\.\d{1,2}(?:\.\d{1,2})?))\s*[-–:.)]?\s+(\S.{7,})$/u',
-                        $line, $m)) {
+                if (
+                    preg_match(
+                        '/^((?:[A-Z]{2,}[A-Z0-9]*\d[A-Z0-9]*)|(?:LO\s?\d{1,2})|(?:\d{1,2}\.\d{1,2}(?:\.\d{1,2})?))\s*[-–:.)]?\s+(\S.{7,})$/u',
+                        $line,
+                        $m
+                    )
+                ) {
                     $code = preg_replace('/\s+/', '', $m[1]);
                     $text = trim($m[2]);
                     if (!isset($coded[$code]) && \core_text::strlen($text) <= 400) {
@@ -725,8 +754,10 @@ final class course_builder {
                     $outcome['text'] = $coded[$best];
                     $repairs['wording'] = true;
                 }
-                if (preg_match('/^(\d+)\.\d/', (string)$outcome['code'], $m) && isset($elements[(int)$m[1]])
-                        && in_array((string)($outcome['strand'] ?? ''), ['', 'General'], true)) {
+                if (
+                    preg_match('/^(\d+)\.\d/', (string)$outcome['code'], $m) && isset($elements[(int)$m[1]])
+                        && in_array((string)($outcome['strand'] ?? ''), ['', 'General'], true)
+                ) {
                     $outcome['strand'] = $elements[(int)$m[1]];
                 }
             }
@@ -1126,8 +1157,10 @@ final class course_builder {
             'aisoftskills' => 'completionallscenes',
             'aisafetyhazards' => 'completionallscenes',
         ];
-        if ($lesson && isset($learningrules[$modulename])
-                && $DB->get_manager()->field_exists($modulename, $learningrules[$modulename])) {
+        if (
+            $lesson && isset($learningrules[$modulename])
+                && $DB->get_manager()->field_exists($modulename, $learningrules[$modulename])
+        ) {
             $info->completion = COMPLETION_TRACKING_AUTOMATIC;
             $info->completionview = 0;
             $info->{$learningrules[$modulename]} = 1;
@@ -1139,8 +1172,10 @@ final class course_builder {
             $delivery = json_decode((string)$DB->get_field('local_aicoursebuilder_program', 'deliveryjson', ['id' => $programid]), true) ?: [];
             if (empty($delivery['selfPaced']) && !empty($course->startdate)) {
                 $perweek = max(1, (int)($delivery['sessionsPerWeek'] ?? 1));
-                $first = (int)$DB->get_field_sql('SELECT MIN(lessonnumber) FROM {local_aicoursebuilder_lesson} WHERE unitid = ?',
-                    [(int)$lesson->unitid]);
+                $first = (int)$DB->get_field_sql(
+                    'SELECT MIN(lessonnumber) FROM {local_aicoursebuilder_lesson} WHERE unitid = ?',
+                    [(int)$lesson->unitid]
+                );
                 $week = intdiv(max(0, (int)$lesson->lessonnumber - max(1, $first)), $perweek);
                 $info->completionexpected = (int)$course->startdate + ($week + 1) * WEEKSECS - 1;
             }
@@ -1279,10 +1314,20 @@ final class course_builder {
             $hours = (float)($d['totalLearnerHours'] ?? 0);
             return 'Self-paced' . ($hours > 0 ? ', about ' . $hours . ' learner hours in total' : '') . '.';
         }
-        return sprintf('Scheduled: %d week(s), %d session(s) a week, %d minutes each.',
-            (int)($d['weeks'] ?? 0), (int)($d['sessionsPerWeek'] ?? 0), (int)($d['minutesPerSession'] ?? 0));
+        return sprintf(
+            'Scheduled: %d week(s), %d session(s) a week, %d minutes each.',
+            (int)($d['weeks'] ?? 0),
+            (int)($d['sessionsPerWeek'] ?? 0),
+            (int)($d['minutesPerSession'] ?? 0)
+        );
     }
 
+    /**
+     * Whether an AI Anatomy pack fits the lesson.
+     *
+     * @param \stdClass $lesson
+     * @return bool
+     */
     private static function anatomy_pack_matches(\stdClass $lesson): bool {
         $outcomes = json_decode((string)$lesson->outcomesjson, true) ?: [];
         $text = implode("\n", array_map(static fn($o) => is_array($o) ? (string)($o['text'] ?? '') : (string)$o, $outcomes));
@@ -1294,6 +1339,12 @@ final class course_builder {
         }
     }
 
+    /**
+     * The AI Anatomy pack that best fits the lesson's description.
+     *
+     * @param string $description
+     * @return string
+     */
     private static function anatomy_pack_for(string $description): string {
         $text = \core_text::strtolower($description);
         $rules = [

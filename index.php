@@ -19,7 +19,7 @@
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 use local_aicoursebuilder\local\ui;
@@ -70,10 +70,15 @@ if (!$programs) {
             $framework->level ?? '',
             $framework->subject ?? '',
         ]);
+        $count = static function (string $key, array $items): string {
+            return count($items) === 1
+                ? get_string($key . '_one', 'local_aicoursebuilder')
+                : get_string($key, 'local_aicoursebuilder', count($items));
+        };
         $counts = [
-            (count($plan['units'] ?? []) === 1 ? get_string('coursescount_one', 'local_aicoursebuilder') : get_string('coursescount', 'local_aicoursebuilder', count($plan['units'] ?? []))),
-            (count($plan['lessons'] ?? []) === 1 ? get_string('lessonscount_one', 'local_aicoursebuilder') : get_string('lessonscount', 'local_aicoursebuilder', count($plan['lessons'] ?? []))),
-            (count($plan['outcomes'] ?? []) === 1 ? get_string('outcomescount_one', 'local_aicoursebuilder') : get_string('outcomescount', 'local_aicoursebuilder', count($plan['outcomes'] ?? []))),
+            $count('coursescount', $plan['units'] ?? []),
+            $count('lessonscount', $plan['lessons'] ?? []),
+            $count('outcomescount', $plan['outcomes'] ?? []),
         ];
         $actions = [];
         if ($program->status === 'planned') {

@@ -19,7 +19,7 @@
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 use local_aicoursebuilder\local\ui;
@@ -119,14 +119,21 @@ $tile = static function (\stdClass $job) use ($str): string {
         );
     }
     $error = $job->error ? html_writer::div(s(shorten_text(preg_replace('/^\[[a-z]+\] /', '', (string)$job->error), 220)), 'aicb-tile-error') : '';
-    if (in_array($job->status, ['failed', 'blocked'], true)) {
+    if (
+        in_array($job->status, ['failed', 'blocked'], true) && $job->cmid
+            && $DB->record_exists('course_modules', ['id' => $job->cmid])
+    ) {
         // Blocked means the service may already have started (and charged) the request:
         // the teacher is told to check the activity first; failed is safe to retry.
-        $error .= html_writer::tag('form',
+        $error .= html_writer::tag(
+            'form',
             html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]) .
             html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'jobid', 'value' => $job->id]) .
-            html_writer::tag('button', $str($job->status === 'blocked' ? 'tryagainchecked' : 'tryagain'),
-                ['type' => 'submit', 'class' => 'btn btn-sm btn-outline-primary mt-2']),
+            html_writer::tag(
+                'button',
+                $str($job->status === 'blocked' ? 'tryagainchecked' : 'tryagain'),
+                ['type' => 'submit', 'class' => 'btn btn-sm btn-outline-primary mt-2']
+            ),
             ['method' => 'post', 'action' => (new moodle_url('/local/aicoursebuilder/retry.php'))->out(false)]
         );
     }

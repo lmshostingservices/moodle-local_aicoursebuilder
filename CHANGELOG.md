@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.6 (2026-11-11)
+- Fix: after the plugin was reinstalled (or courses were restored from another site), approval failed with "ID number is already used for another category". Category ID numbers and course short names now use a free value.
+- Fix: if the teacher deleted an activity or its course before it was built, the build retried it and showed a database error. It now stops with a clear message, and "Try again" is not offered.
+- Fix: the review page was wider than a phone screen.
+- Fix: the capability names were missing on the permissions page and in the no-permission message.
+- Fix: running activities are labelled "Creating", like the others.
+- Fix: total learner hours is limited to 0–5,000.
+- Moodle coding standard: no errors.
+
 ## 1.0.5 (2026-11-11)
 - Fix: Soft Skills, Safety Hazards and AI Anatomy activities need the plugin to be unlocked on the site (in its settings, "Check access"). Until then learners only see "not activated", but the builder still offered these tools and paid for activities nobody could play. A locked plugin now shows "Needs setup" with how to unlock it. If a plugin becomes locked after approval, that activity stops before anything is charged.
 

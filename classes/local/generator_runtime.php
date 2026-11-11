@@ -16,8 +16,6 @@
 
 namespace local_aicoursebuilder\local;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Fail-closed dispatcher for plugin-owned course-builder adapters.
  *
@@ -26,7 +24,7 @@ defined('MOODLE_INTERNAL') || die();
  * deliberately refuses generic cross-plugin database writes.
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class generator_runtime {
     /**

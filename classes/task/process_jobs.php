@@ -16,13 +16,11 @@
 
 namespace local_aicoursebuilder\task;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Reconciles course build and activity job status for the live report.
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class process_jobs extends \core\task\scheduled_task {
     /**

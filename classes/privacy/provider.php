@@ -16,8 +16,6 @@
 
 namespace local_aicoursebuilder\privacy;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_privacy\local\metadata\collection;
 use core_privacy\local\request\approved_contextlist;
 use core_privacy\local\request\approved_userlist;
@@ -29,7 +27,7 @@ use core_privacy\local\request\writer;
  * Privacy provider for AI Course Builder's creator-owned program data.
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class provider implements
     \core_privacy\local\metadata\provider,
@@ -291,8 +289,12 @@ class provider implements
     public static function export_user_preferences(int $userid) {
         $tools = get_user_preferences('local_aicoursebuilder_tools', null, $userid);
         if ($tools !== null) {
-            writer::export_user_preference('local_aicoursebuilder', 'local_aicoursebuilder_tools', $tools,
-                get_string('privacy:metadata:preference:tools', 'local_aicoursebuilder'));
+            writer::export_user_preference(
+                'local_aicoursebuilder',
+                'local_aicoursebuilder_tools',
+                $tools,
+                get_string('privacy:metadata:preference:tools', 'local_aicoursebuilder')
+            );
         }
     }
 }

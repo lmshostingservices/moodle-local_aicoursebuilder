@@ -19,7 +19,7 @@
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 use local_aicoursebuilder\local\ui;
@@ -209,18 +209,25 @@ foreach ($units as $uindex => $unit) {
             }
         }
         if (count($options) > 1) {
-            $chips .= html_writer::select($options, 'addoutcome' . $number, '', false,
+            $chips .= html_writer::select(
+                $options,
+                'addoutcome' . $number,
+                '',
+                false,
                 ['class' => 'custom-select form-select aicb-add-outcome', 'data-add-outcome' => 1,
-                'aria-label' => $str('addoutcometolesson')]);
+                'aria-label' => $str('addoutcometolesson')]
+            );
         }
         echo html_writer::div($chips, 'aicb-lesson-outcomes');
         $pills = '';
         foreach (ui::LESSON_TOOLS as $component) {
             $on = in_array($component, $selected, true);
             // Only offer tools this site can build now, so a pill can never block the approval.
-            if (!$on && (!ui::tool_installed($component)
+            if (
+                !$on && (!ui::tool_installed($component)
                     || !\local_aicoursebuilder\local\generator_runtime::component_available($component)
-                    || \local_aicoursebuilder\local\generator_runtime::component_ready($component) !== null)) {
+                    || \local_aicoursebuilder\local\generator_runtime::component_ready($component) !== null)
+            ) {
                 continue;
             }
             $price = $prices[$number][$component];
@@ -238,11 +245,13 @@ foreach ($units as $uindex => $unit) {
         echo html_writer::div($pills, 'aicb-lesson-tools');
         echo html_writer::div('', 'aicb-lesson-time', ['data-lesson-time' => $minutes]);
         $lessonnotes = (string)($lesson['notes'] ?? '');
-        $extras = html_writer::tag('details',
+        $extras = html_writer::tag(
+            'details',
             html_writer::tag('summary', $str('lessonnotes') . ($lessonnotes !== '' ? ' ✓' : '')) .
             html_writer::tag('textarea', s($lessonnotes), ['class' => 'form-control mt-1', 'rows' => 2, 'maxlength' => 1000,
                 'data-lesson-notes' => 1, 'placeholder' => $str('lessonnotesph'), 'aria-label' => $str('lessonnotes')]),
-            array_filter(['class' => 'aicb-lesson-notes', 'open' => $lessonnotes !== '' ? 'open' : null]));
+            array_filter(['class' => 'aicb-lesson-notes', 'open' => $lessonnotes !== '' ? 'open' : null])
+        );
         if (count($unit['lessons'] ?? []) > 1) {
             $extras .= html_writer::tag('button', $str('removelesson'), ['type' => 'button',
                 'class' => 'btn btn-link btn-sm aicb-remove-lesson', 'data-remove-lesson' => $number]);
@@ -355,8 +364,13 @@ $targets += ui::target_categories();
 if ($targets) {
     echo html_writer::div(
         html_writer::label($str('createin'), 'id_parentcategory', true, ['class' => 'aicb-label']) .
-        html_writer::select($targets, 'parentcategory', array_key_first($targets), false,
-            ['id' => 'id_parentcategory', 'class' => 'custom-select form-select w-100']),
+        html_writer::select(
+            $targets,
+            'parentcategory',
+            array_key_first($targets),
+            false,
+            ['id' => 'id_parentcategory', 'class' => 'custom-select form-select w-100']
+        ),
         'aicb-target mb-2'
     );
 } else {

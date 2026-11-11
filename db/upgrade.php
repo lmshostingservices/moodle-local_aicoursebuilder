@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Upgrade steps for the local_aicoursebuilder plugin.
  *
@@ -23,7 +21,7 @@ defined('MOODLE_INTERNAL') || die();
  * @return bool
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 function xmldb_local_aicoursebuilder_upgrade(int $oldversion): bool {
     global $DB;

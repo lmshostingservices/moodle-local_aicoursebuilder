@@ -19,7 +19,7 @@
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 require_once(__DIR__ . '/../../config.php');
@@ -107,7 +107,7 @@ $delivery = [
     'minutesPerSession' => max(15, min(240, optional_param('minutespersession', 60, PARAM_INT))),
     'reservePercent' => max(0, min(40, optional_param('reservepercent', 15, PARAM_INT))),
     'selfPaced' => (bool)$selfpaced,
-    'totalLearnerHours' => optional_param('totallearnerhours', 0, PARAM_FLOAT),
+    'totalLearnerHours' => max(0, min(5000, optional_param('totallearnerhours', 0, PARAM_FLOAT))),
 ];
 // Start date (YYYY-MM-DD, the teacher's own day) and course format.
 $startdate = optional_param('startdate', '', PARAM_RAW_TRIMMED); // pipeline-ignore: PARAM_RAW_TRIMMED — matched against a strict date pattern below.
@@ -135,7 +135,9 @@ foreach ($selectedtools as $component) {
 }
 // Remember the teacher's choice, so their usual activities and settings are used next time.
 set_user_preference('local_aicoursebuilder_tools', implode(',', array_map(
-    static fn($c) => $c . ':' . $toolmodes[$c], $selectedtools)));
+    static fn($c) => $c . ':' . $toolmodes[$c],
+    $selectedtools
+)));
 $payload = [
     'program' => $program,
     'sources' => $sources,

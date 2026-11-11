@@ -19,7 +19,7 @@
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 use local_aicoursebuilder\local\ui;
@@ -113,7 +113,10 @@ echo html_writer::tag('p', $str('step2desc'), ['class' => 'aicb-card-lead']);
 echo html_writer::start_div('row');
 echo $field('name', $str('title'), $text('name', ['required' => 'required', 'placeholder' => $str('example_title')]), '', 'col-md-8');
 echo $field('framework', $str('framework'), html_writer::select(
-    ['custom' => $str('framework_custom')], 'framework', 'custom', false,
+    ['custom' => $str('framework_custom')],
+    'framework',
+    'custom',
+    false,
     ['id' => 'id_framework', 'class' => 'form-select', 'data-labels' => json_encode(array_combine(
         ['vet', 'au_curriculum', 'sg_moe', 'university', 'workplace', 'custom'],
         array_map(fn($k) => $str('framework_' . $k), ['vet', 'au_curriculum', 'sg_moe', 'university', 'workplace', 'custom'])
@@ -121,8 +124,13 @@ echo $field('framework', $str('framework'), html_writer::select(
 ), '', 'col-md-4');
 echo html_writer::start_div('col-12', ['id' => 'aicb-vet-fields', 'hidden' => 'hidden']);
 echo html_writer::start_div('row');
-echo $field('unitcode', $str('unitcode'), $text('unitcode', ['placeholder' => 'CHCCCS031', 'maxlength' => 50]),
-    $str('unitcode_help'), 'col-md-3');
+echo $field(
+    'unitcode',
+    $str('unitcode'),
+    $text('unitcode', ['placeholder' => 'CHCCCS031', 'maxlength' => 50]),
+    $str('unitcode_help'),
+    'col-md-3'
+);
 echo $field('unittitle', $str('unittitle'), $text('unittitle', ['maxlength' => 255,
     'placeholder' => $str('unittitle_example')]), '', 'col-md-6');
 echo $field('nominalhours', $str('nominalhours'), $number('nominalhours', '', 0, 5000), $str('nominalhours_help'), 'col-md-3');
@@ -173,16 +181,23 @@ foreach (\core_plugin_manager::instance()->get_enabled_plugins('format') ?: [] a
     $formats[$format] = get_string('pluginname', 'format_' . $format);
 }
 // The LMS Labs theme can make every course use AI Course Format; then that is the only choice.
-if (isset($formats['aicourse']) && class_exists('\\theme_lmslabs\\local\\aiformat')
-        && method_exists('\\theme_lmslabs\\local\\aiformat', 'enabled') && \theme_lmslabs\local\aiformat::enabled()) {
+if (
+    isset($formats['aicourse']) && class_exists('\\theme_lmslabs\\local\\aiformat')
+        && method_exists('\\theme_lmslabs\\local\\aiformat', 'enabled') && \theme_lmslabs\local\aiformat::enabled()
+) {
     $formats = ['aicourse' => $formats['aicourse']];
 }
 $defaultformat = isset($formats['aicourse']) ? 'aicourse' : (string)get_config('moodlecourse', 'format');
 echo html_writer::start_div('row');
 echo $field('startdate', $str('coursestart'), html_writer::empty_tag('input', ['type' => 'date', 'id' => 'id_startdate',
     'name' => 'startdate', 'class' => 'form-control', 'value' => userdate(time(), '%Y-%m-%d', 99, false)]), '', 'col-md-3');
-echo $field('courseformat', $str('courseformat'), html_writer::select($formats, 'courseformat', $defaultformat, false,
-    ['id' => 'id_courseformat', 'class' => 'custom-select form-select']), '', 'col-md-4');
+echo $field('courseformat', $str('courseformat'), html_writer::select(
+    $formats,
+    'courseformat',
+    $defaultformat,
+    false,
+    ['id' => 'id_courseformat', 'class' => 'custom-select form-select']
+), '', 'col-md-4');
 echo html_writer::end_div();
 echo html_writer::div(
     html_writer::div('', 'aicb-pace-value', ['data-aicb' => 'lessons']) .

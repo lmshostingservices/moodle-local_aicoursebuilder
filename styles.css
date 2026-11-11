@@ -187,7 +187,7 @@
 }
 .aicb-plans {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr));
     gap: 1rem;
 }
 .aicb-plan {
@@ -338,7 +338,7 @@
 }
 .aicb-tools {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
     gap: .75rem;
     margin-bottom: 1rem;
 }
@@ -634,7 +634,7 @@
 }
 .aicb-tiles {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr));
     gap: .6rem;
 }
 .aicb-tile {
@@ -699,7 +699,7 @@
     .aicb-hero,
     .aicb-wizard-grid,
     .aicb-review-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
     .aicb-stats {
         grid-template-columns: repeat(2, 1fr);
@@ -824,4 +824,18 @@ select.aicb-tool-mode.form-select {
 .aicb-lesson-time.is-short {
     color: var(--aicb-attention);
     font-weight: 600;
+}
+
+/* Long content wraps inside its card instead of widening the page on phones. */
+.aicb-review-main,
+.aicb-review-grid > *,
+.aicb-card,
+.aicb-lesson,
+.aicb-lesson-outcomes,
+.aicb-lesson-tools {
+    min-width: 0;
+}
+.aicb-outcome-text,
+.aicb-lesson-title {
+    overflow-wrap: anywhere;
 }

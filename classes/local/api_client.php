@@ -16,13 +16,11 @@
 
 namespace local_aicoursebuilder\local;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * LMS Labs API client used for course planning.
  * @package    local_aicoursebuilder
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class api_client {
     /**
