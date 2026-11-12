@@ -300,6 +300,9 @@
 .aicb-estimate {
     position: sticky;
     top: 5rem;
+    /* Taller than the screen on a laptop: scroll inside, so Approve is always reachable. */
+    max-height: calc(100vh - 6rem);
+    overflow-y: auto;
 }
 .aicb-summary-row {
     padding: .6rem 0;

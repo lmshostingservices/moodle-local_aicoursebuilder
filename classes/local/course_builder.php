@@ -381,6 +381,11 @@ final class course_builder {
             $tools = array_values(array_unique(array_filter($lesson['tools'] ?? [], static function ($component) use ($validcomponents) {
                 return is_string($component) && in_array($component, $validcomponents, true);
             })));
+            // Teach first, then practise and apply, and close the lesson with the Knowledge Check.
+            usort($tools, static function (string $a, string $b): int {
+                $order = array_flip(ui::LESSON_ORDER);
+                return ($order[$a] ?? 50) <=> ($order[$b] ?? 50);
+            });
             if ($number < 1 || $title === '' || !isset($unitids[$unitnumber]) || !$tools) {
                 throw new \moodle_exception('invalidplan', 'local_aicoursebuilder');
             }
@@ -879,6 +884,29 @@ final class course_builder {
             }
         }
         unset($lesson);
+        // A title that lost its first word ("and report emergency situations") is rebuilt from its outcome.
+        foreach ($lessons as &$lesson) {
+            $title = trim(preg_replace('/^\s*(unit|course|lesson|module)\s*\d+\s*[·:\-–.]\s*/iu', '', (string)($lesson['title'] ?? '')));
+            $first = (string)strtok($title, ' ');
+            if ($title === '' || !preg_match('/^\p{Ll}{2,}[,;:]?$/u', $first)) {
+                continue;
+            }
+            $full = '';
+            $needle = $norm($title);
+            foreach ($lesson['outcomes'] as $key) {
+                if (isset($bykey[$key]) && $needle !== '' && strpos($norm($bykey[$key]), $needle) !== false) {
+                    $full = $bykey[$key];
+                    break;
+                }
+            }
+            if ($full === '' && !empty($lesson['outcomes'][0]) && isset($bykey[$lesson['outcomes'][0]])) {
+                $full = $bykey[$lesson['outcomes'][0]];
+            }
+            $lesson['title'] = $full !== '' ? $titlefrom($full) : \core_text::strtoupper(\core_text::substr($title, 0, 1))
+                . \core_text::substr($title, 1);
+            $repairs['titles'] = true;
+        }
+        unset($lesson);
         // The course is called what the teacher called it.
         $units = array_values((array)($plan['units'] ?? []));
         $name = trim($name);
@@ -1113,7 +1141,10 @@ final class course_builder {
         $moduleid = $DB->get_field('modules', 'id', ['name' => $modulename], MUST_EXIST);
         $description = '';
         if ($lesson) {
-            $outcomes = json_decode((string)$lesson->outcomesjson, true) ?: [];
+            $outcomes = \local_aicoursebuilder\task\generate_activity::lesson_outcomes(
+                (int)$lesson->programid,
+                json_decode((string)$lesson->outcomesjson, true) ?: []
+            );
             $description = implode("\n", array_map(static function ($outcome) {
                 return clean_param(is_array($outcome) ? (string)($outcome['text'] ?? '') : (string)$outcome, PARAM_TEXT);
             }, $outcomes));
@@ -1329,7 +1360,10 @@ final class course_builder {
      * @return bool
      */
     private static function anatomy_pack_matches(\stdClass $lesson): bool {
-        $outcomes = json_decode((string)$lesson->outcomesjson, true) ?: [];
+        $outcomes = \local_aicoursebuilder\task\generate_activity::lesson_outcomes(
+            (int)$lesson->programid,
+            json_decode((string)$lesson->outcomesjson, true) ?: []
+        );
         $text = implode("\n", array_map(static fn($o) => is_array($o) ? (string)($o['text'] ?? '') : (string)$o, $outcomes));
         try {
             self::anatomy_pack_for($text);

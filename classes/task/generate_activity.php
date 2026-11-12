@@ -99,7 +99,7 @@ class generate_activity extends \core\task\adhoc_task {
             if ($this->wait_for_course_level_dependencies($job, $lesson)) {
                 return;
             }
-            $outcomes = json_decode($lesson->outcomesjson, true) ?: [];
+            $outcomes = self::lesson_outcomes((int)$job->programid, json_decode($lesson->outcomesjson, true) ?: []);
             $outcometexts = [];
             foreach ($outcomes as $outcome) {
                 $text = is_array($outcome) ? trim((string)($outcome['text'] ?? '')) : trim((string)$outcome);
@@ -550,6 +550,43 @@ class generate_activity extends \core\task\adhoc_task {
             }
         }
         return false;
+    }
+
+    /**
+     * The lesson's outcomes with their full text.
+     *
+     * A lesson stores outcome codes ("2.1") when the curriculum has codes. Every tool needs the
+     * outcome itself, so each code is replaced by the code, text and element it stands for.
+     *
+     * @param int $programid
+     * @param array $keys outcome codes or texts, as stored on the lesson
+     * @return array list of ['code' => string, 'text' => string, 'strand' => string]
+     */
+    public static function lesson_outcomes(int $programid, array $keys): array {
+        global $DB;
+        $bycode = [];
+        $bytext = [];
+        foreach ($DB->get_records('local_aicoursebuilder_outcome', ['programid' => $programid], 'sortorder ASC, id ASC') as $row) {
+            $item = ['code' => (string)$row->code, 'text' => (string)$row->outcometext, 'strand' => (string)$row->strand];
+            if ((string)$row->code !== '') {
+                $bycode[(string)$row->code] = $item;
+            }
+            $bytext[\core_text::strtolower(trim((string)$row->outcometext))] = $item;
+        }
+        $result = [];
+        foreach ($keys as $key) {
+            if (is_array($key)) {
+                $result[] = ['code' => (string)($key['code'] ?? ''), 'text' => (string)($key['text'] ?? ''),
+                    'strand' => (string)($key['strand'] ?? '')];
+                continue;
+            }
+            $key = trim((string)$key);
+            if ($key === '') {
+                continue;
+            }
+            $result[] = $bycode[$key] ?? $bytext[\core_text::strtolower($key)] ?? ['code' => '', 'text' => $key, 'strand' => ''];
+        }
+        return $result;
     }
 
     /**

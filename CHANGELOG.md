@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.7 (2026-11-12)
+- Fix: when the curriculum had codes (1.1, 2.1 ...), activities were sent only the codes, not the outcome text. Knowledge Checks could come back with general questions for the subject instead of the lesson's outcomes, activity descriptions showed only codes, and Anatomy never matched. Every activity now gets each outcome's code, full text and element.
+- Fix: activities added on the review page are placed in teaching order (teach, practise, apply), with the Knowledge Check last.
+- Fix: a lesson title that lost its first word in planning ("and report emergency situations") is rebuilt from its outcome.
+- Fix: on a laptop screen the credit panel was taller than the window and cut off the Approve button. It now scrolls on its own.
+- Outcome tags on the review page read as words ("Workplace safety"), not internal names.
+
 ## 1.0.6 (2026-11-11)
 - Fix: after the plugin was reinstalled (or courses were restored from another site), approval failed with "ID number is already used for another category". Category ID numbers and course short names now use a free value.
 - Fix: if the teacher deleted an activity or its course before it was built, the build retried it and showed a database error. It now stops with a clear message, and "Try again" is not offered.

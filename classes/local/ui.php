@@ -38,6 +38,12 @@ final class ui {
         'mod_aisafetyhazards', 'mod_aianatomy',
     ];
 
+    /** @var string[] The order activities appear in a lesson: teach, practise, apply, then check. */
+    public const LESSON_ORDER = [
+        'mod_visuallearning', 'mod_contentcreator', 'mod_productexplainer', 'mod_aianatomy', 'mod_aiactivities',
+        'mod_aisafetyhazards', 'mod_aisoftskills', 'mod_aibranchedscenario', 'mod_aiknowledgecheck',
+    ];
+
     /** @var string[] Tools that are only added to lessons with a matching tagged outcome. */
     public const TAGGED_TOOLS = ['mod_aisoftskills', 'mod_aibranchedscenario', 'mod_aisafetyhazards', 'mod_aianatomy'];
 

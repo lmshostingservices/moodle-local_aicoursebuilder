@@ -295,7 +295,12 @@ foreach ($outcomes as $index => $outcome) {
         $tags .= html_writer::span($str('notinanylesson'), 'aicb-chip aicb-chip-attention');
     }
     foreach ($outcome['tags'] ?? [] as $tag) {
-        $tags .= html_writer::span(s($tag), 'aicb-chip aicb-chip-info');
+        $label = trim(str_replace(['_', '-'], ' ', (string)$tag));
+        if ($label === '') {
+            continue;
+        }
+        $label = \core_text::strtoupper(\core_text::substr($label, 0, 1)) . \core_text::substr($label, 1);
+        $tags .= html_writer::span(s($label), 'aicb-chip aicb-chip-info');
     }
     $okey = !empty($outcome['code']) ? (string)$outcome['code'] : (string)($outcome['text'] ?? '');
     $remove = count($outcomes) > 1 ? html_writer::tag('button', '×', ['type' => 'button', 'class' => 'aicb-chip-x aicb-outcome-x',
